@@ -1,0 +1,25 @@
+
+.snowflake/
+.v0-trash/
+.vercel/
+next.user-config.*
+
+# Environment variables
+.env*.local
+
+# Common ignores
+node_modules
+.next/
+.DS_Store
+dist/
+build/
+logs/
+*.log
+*.lock
+coverage/
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.swp
+
