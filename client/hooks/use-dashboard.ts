@@ -8,7 +8,7 @@ import { useState, useEffect } from "react";
 export function useDashboard(portfolioId: string | null) {
   const { data, error, isLoading, mutate } = useSWR<DashboardData>(
     portfolioId ? `dashboard-${portfolioId}` : null,
-    () => (portfolioId ? getDashboard(portfolioId) : null),
+    () => getDashboard(portfolioId as string),
     {
       revalidateOnFocus: false,
       refreshInterval: 60000, // Poll every 60s when tab is visible
@@ -26,7 +26,7 @@ export function useDashboard(portfolioId: string | null) {
 export function useChartData(portfolioId: string | null, period: string = "1M") {
   const { data, error, isLoading, mutate } = useSWR<ChartData>(
     portfolioId ? `chart-${portfolioId}-${period}` : null,
-    () => (portfolioId ? getChartData(portfolioId, period) : null),
+    () => getChartData(portfolioId as string, period),
     {
       revalidateOnFocus: false,
     }

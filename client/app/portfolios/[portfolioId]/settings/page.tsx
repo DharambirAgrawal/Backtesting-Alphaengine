@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import {
@@ -56,26 +56,15 @@ export default function PortfolioSettingsPage() {
   const [isAddingTicker, setIsAddingTicker] = useState(false);
   const [removingTicker, setRemovingTicker] = useState<string | null>(null);
 
-  // Initialize form when portfolio loads
-  useState(() => {
-    if (portfolio) {
-      setName(portfolio.name);
-      setDescription(portfolio.description || "");
-      setIsActive(portfolio.is_active);
+  useEffect(() => {
+    if (!portfolio) {
+      return;
     }
-  });
 
-  // Update form when portfolio changes
-  if (
-    portfolio &&
-    name === "" &&
-    description === "" &&
-    portfolio.name !== name
-  ) {
     setName(portfolio.name);
     setDescription(portfolio.description || "");
     setIsActive(portfolio.is_active);
-  }
+  }, [portfolio]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -87,8 +76,11 @@ export default function PortfolioSettingsPage() {
       });
       toast.success("Settings saved");
       refresh();
-    } catch {
-      toast.error("Failed to save settings");
+    } catch (error) {
+      toast.error("Failed to save settings", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -100,8 +92,11 @@ export default function PortfolioSettingsPage() {
       await addTickers(portfolioId, [ticker.ticker]);
       toast.success(`Added ${ticker.ticker}`);
       refresh();
-    } catch {
-      toast.error(`Failed to add ${ticker.ticker}`);
+    } catch (error) {
+      toast.error(`Failed to add ${ticker.ticker}`, {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
     } finally {
       setIsAddingTicker(false);
     }
@@ -113,8 +108,11 @@ export default function PortfolioSettingsPage() {
       await removeTicker(portfolioId, ticker);
       toast.success(`Removed ${ticker}`);
       refresh();
-    } catch {
-      toast.error(`Failed to remove ${ticker}`);
+    } catch (error) {
+      toast.error(`Failed to remove ${ticker}`, {
+        description:
+          error instanceof Error ? error.message : "Please close the position first.",
+      });
     } finally {
       setRemovingTicker(null);
     }
@@ -125,9 +123,12 @@ export default function PortfolioSettingsPage() {
     try {
       await deletePortfolio(portfolioId);
       toast.success("Portfolio deleted");
-      router.push("/dashboard");
-    } catch {
-      toast.error("Failed to delete portfolio");
+      router.replace("/dashboard");
+    } catch (error) {
+      toast.error("Failed to delete portfolio", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
       setIsDeleting(false);
     }
   };
@@ -304,7 +305,7 @@ export default function PortfolioSettingsPage() {
               <div>
                 <p className="font-medium">Delete Portfolio</p>
                 <p className="text-sm text-muted-foreground">
-                  Permanently delete this portfolio and all its data
+                  Permanently delete this portfolio and its stored history
                 </p>
               </div>
               <AlertDialog>
@@ -319,8 +320,9 @@ export default function PortfolioSettingsPage() {
                     <AlertDialogTitle>Delete Portfolio?</AlertDialogTitle>
                     <AlertDialogDescription>
                       This will permanently delete &quot;{portfolio?.name}&quot;
-                      and all associated transactions, holdings, and model data.
-                      This action cannot be undone.
+                      and all associated transactions, holdings, snapshots, and
+                      agent history. Model records for tickers not used anywhere
+                      else will also be removed. This action cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

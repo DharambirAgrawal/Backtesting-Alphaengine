@@ -24,7 +24,7 @@ export function usePortfolios() {
 export function usePortfolio(id: string | null) {
   const { data, error, isLoading, mutate } = useSWR<Portfolio>(
     id ? `portfolio-${id}` : null,
-    () => (id ? getPortfolio(id) : null),
+    () => getPortfolio(id as string),
     {
       revalidateOnFocus: false,
     }

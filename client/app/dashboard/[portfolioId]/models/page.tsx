@@ -25,7 +25,10 @@ export default function ModelsPage() {
     retrainAllModels,
     isRetraining,
     isAnyRetraining,
-  } = useModels(portfolio?.tickers);
+  } = useModels({
+    portfolioId,
+    trackedTickers: portfolio?.tickers ?? [],
+  });
 
   const [accuracyView, setAccuracyView] = useState<{
     ticker: string;
@@ -69,7 +72,7 @@ export default function ModelsPage() {
           </div>
           <Button
             onClick={handleRetrainAll}
-            disabled={isAnyRetraining || models.length === 0}
+            disabled={isAnyRetraining || !portfolio?.tickers.length}
           >
             {isAnyRetraining ? (
               <>
@@ -85,20 +88,31 @@ export default function ModelsPage() {
           </Button>
         </div>
 
-        {isLoading ? (
+        {isLoading || !portfolio ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {[1, 2, 3, 4].map((i) => (
               <Skeleton key={i} className="h-64" />
             ))}
           </div>
+        ) : portfolio.tickers.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              <Brain className="h-8 w-8 text-muted-foreground" />
+              <EmptyTitle>No tickers configured</EmptyTitle>
+              <EmptyDescription>
+                Add at least one ticker in portfolio settings to start training
+                models.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : models.length === 0 ? (
           <Empty>
             <EmptyHeader>
               <Brain className="h-8 w-8 text-muted-foreground" />
               <EmptyTitle>No models trained yet</EmptyTitle>
               <EmptyDescription>
-                Models will be trained automatically when you add tickers to
-                this portfolio.
+                Models are still training or have not been generated for these
+                tickers yet. You can retry training from here.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

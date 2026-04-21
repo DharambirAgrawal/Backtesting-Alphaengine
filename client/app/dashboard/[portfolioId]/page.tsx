@@ -179,9 +179,13 @@ export default function PortfolioDashboardPage() {
             />
             <StatsCard
               label="Best Trade"
-              value={`${dashboard.performance.best_trade.ticker} ${formatPct(
-                dashboard.performance.best_trade.gain_pct
-              )}`}
+              value={
+                dashboard.performance.best_trade.gain_pct !== undefined
+                  ? `${dashboard.performance.best_trade.ticker} ${formatPct(
+                      dashboard.performance.best_trade.gain_pct
+                    )}`
+                  : dashboard.performance.best_trade.ticker
+              }
               trend="up"
             />
           </div>

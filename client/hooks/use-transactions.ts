@@ -19,7 +19,7 @@ export function useTransactions(
     portfolioId
       ? `transactions-${portfolioId}-${JSON.stringify(filters)}`
       : null,
-    () => (portfolioId ? getTransactions(portfolioId, filters) : null),
+    () => getTransactions(portfolioId as string, filters),
     {
       revalidateOnFocus: false,
     }

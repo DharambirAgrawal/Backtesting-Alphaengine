@@ -13,8 +13,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { RelativeDate } from "@/components/ui/relative-date";
 import { ChevronRight, ChevronDown, ArrowRightLeft } from "lucide-react";
-import { formatCurrency, formatShares, formatDate } from "@/lib/format";
+import { formatCurrency, formatShares } from "@/lib/format";
 import { ACTION_COLORS } from "@/lib/constants";
 import type { Transaction } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -101,9 +102,10 @@ export function RecentTrades({
                       {formatShares(tx.shares)} shares @ {formatCurrency(tx.price_at_trade)}
                     </span>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {formatDate(tx.executed_at, "relative")}
-                  </span>
+                  <RelativeDate
+                    value={tx.executed_at}
+                    className="text-xs text-muted-foreground"
+                  />
                 </div>
 
                 <div className="mt-2">

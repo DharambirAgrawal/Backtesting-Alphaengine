@@ -17,7 +17,7 @@ export function useAgentRun(portfolioId: string | null) {
 
   const { data, mutate } = useSWR<AgentRun[]>(
     portfolioId ? `agent-runs-${portfolioId}` : null,
-    () => (portfolioId ? getAgentRuns(portfolioId) : null),
+    () => getAgentRuns(portfolioId as string),
     {
       revalidateOnFocus: false,
     }

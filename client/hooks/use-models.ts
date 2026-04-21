@@ -1,40 +1,35 @@
 "use client";
 
 import useSWR from "swr";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import {
   getModels,
+  getModelsOverview,
   trainTicker,
   retrainAll,
   getModelAccuracy,
 } from "@/lib/api";
-import type { MLModel } from "@/lib/types";
+import type { MLModel, ModelsOverview } from "@/lib/types";
 
-/**
- * Fetches all trained models from the backend.
- * If `portfolioTickers` is provided, filters client-side to only models
- * whose ticker is in that list (backend /models returns all tickers globally).
- */
-export function useModels(portfolioTickers?: string[]) {
+interface UseModelsOptions {
+  portfolioId?: string;
+  trackedTickers?: string[];
+  enabled?: boolean;
+}
+
+export function useModels(options: UseModelsOptions = {}) {
   const [retrainingTickers, setRetrainingTickers] = useState<Set<string>>(
     new Set()
   );
+  const { portfolioId, trackedTickers, enabled = true } = options;
 
   const { data, error, isLoading, mutate } = useSWR<MLModel[]>(
-    "models",
-    getModels,
+    enabled ? (portfolioId ? `models-${portfolioId}` : "models") : null,
+    () => getModels({ portfolioId }),
     {
       revalidateOnFocus: false,
     }
   );
-
-  // Filter models by the portfolio's tickers if provided
-  const filteredModels = useMemo(() => {
-    if (!data) return [];
-    if (!portfolioTickers || portfolioTickers.length === 0) return data;
-    const tickerSet = new Set(portfolioTickers.map((t) => t.toUpperCase()));
-    return data.filter((m) => tickerSet.has(m.ticker.toUpperCase()));
-  }, [data, portfolioTickers]);
 
   /**
    * Trigger retraining of both LSTM + XGBoost for a ticker.
@@ -56,7 +51,7 @@ export function useModels(portfolioTickers?: string[]) {
         const poll = setInterval(async () => {
           elapsed += 3000;
           try {
-            const latest = await getModels();
+            const latest = await getModels({ portfolioId });
             const tickerModels = latest.filter((m) => m.ticker === ticker);
             const updated = tickerModels.some(
               (m, idx) =>
@@ -86,7 +81,7 @@ export function useModels(portfolioTickers?: string[]) {
         throw error;
       }
     },
-    [data, mutate]
+    [data, mutate, portfolioId]
   );
 
   /**
@@ -94,11 +89,18 @@ export function useModels(portfolioTickers?: string[]) {
    * Backend endpoint: POST /models/retrain-all
    */
   const retrainAllModels = useCallback(async () => {
-    const tickers = Array.from(new Set(filteredModels.map((m) => m.ticker)));
+    const tickers = Array.from(
+      new Set(
+        (trackedTickers && trackedTickers.length > 0
+          ? trackedTickers
+          : (data ?? []).map((model) => model.ticker)
+        ).map((ticker) => ticker.toUpperCase())
+      )
+    );
     setRetrainingTickers(new Set(tickers));
 
     try {
-      await retrainAll();
+      await retrainAll(portfolioId);
 
       // Poll every 5s up to 180s for refresh
       let elapsed = 0;
@@ -114,7 +116,7 @@ export function useModels(portfolioTickers?: string[]) {
       setRetrainingTickers(new Set());
       throw error;
     }
-  }, [filteredModels, mutate]);
+  }, [data, mutate, portfolioId, trackedTickers]);
 
   const isRetraining = useCallback(
     (ticker: string) => retrainingTickers.has(ticker),
@@ -122,13 +124,30 @@ export function useModels(portfolioTickers?: string[]) {
   );
 
   return {
-    models: filteredModels,
+    models: data ?? [],
     isLoading,
     error,
     retrain,
     retrainAllModels,
     isRetraining,
     isAnyRetraining: retrainingTickers.size > 0,
+    refresh: mutate,
+  };
+}
+
+export function useModelsOverview(portfolioId?: string) {
+  const { data, error, isLoading, mutate } = useSWR<ModelsOverview>(
+    portfolioId ? `models-overview-${portfolioId}` : "models-overview",
+    () => getModelsOverview(portfolioId),
+    {
+      revalidateOnFocus: false,
+    }
+  );
+
+  return {
+    overview: data,
+    isLoading,
+    error,
     refresh: mutate,
   };
 }

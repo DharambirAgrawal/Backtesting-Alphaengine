@@ -8,6 +8,7 @@ import {
   Brain,
   Settings,
   Users,
+  Layers3,
   ChevronLeft,
   TrendingUp,
   LogOut,
@@ -15,7 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface SidebarProps {
   portfolioId?: string;
@@ -23,14 +24,34 @@ interface SidebarProps {
 
 export function Sidebar({ portfolioId }: SidebarProps) {
   const pathname = usePathname();
-  const { role, logout } = useAuth();
+  const { role, logout, isReady } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isLinkActive = (href: string, exact = false) => {
+    if (exact) {
+      return pathname === href;
+    }
+
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
 
   const mainNavItems = [
     {
-      label: "Dashboard",
+      label: portfolioId ? "Overview" : "Portfolios",
       href: portfolioId ? `/dashboard/${portfolioId}` : "/dashboard",
       icon: LayoutDashboard,
+      exact: !portfolioId,
+    },
+    {
+      label: "Model Registry",
+      href: "/dashboard/models",
+      icon: Layers3,
+      exact: false,
     },
     ...(portfolioId
       ? [
@@ -38,23 +59,26 @@ export function Sidebar({ portfolioId }: SidebarProps) {
             label: "Trades",
             href: `/dashboard/${portfolioId}/trades`,
             icon: ArrowRightLeft,
+            exact: false,
           },
           {
-            label: "Models",
+            label: "Portfolio Models",
             href: `/dashboard/${portfolioId}/models`,
             icon: Brain,
+            exact: false,
           },
           {
             label: "Settings",
             href: `/portfolios/${portfolioId}/settings`,
             icon: Settings,
+            exact: false,
           },
         ]
       : []),
   ];
 
   const adminNavItems =
-    role === "admin"
+    mounted && isReady && role === "admin"
       ? [
           {
             label: "Users",
@@ -101,8 +125,7 @@ export function Sidebar({ portfolioId }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 p-2">
         {mainNavItems.map((item) => {
-          const isActive =
-            pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isActive = isLinkActive(item.href, item.exact);
           return (
             <Link
               key={item.href}
@@ -128,7 +151,7 @@ export function Sidebar({ portfolioId }: SidebarProps) {
               </div>
             )}
             {adminNavItems.map((item) => {
-              const isActive = pathname === item.href;
+              const isActive = isLinkActive(item.href, true);
               return (
                 <Link
                   key={item.href}

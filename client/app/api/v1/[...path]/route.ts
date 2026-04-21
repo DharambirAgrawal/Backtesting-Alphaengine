@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "https://your-render-app.onrender.com";
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === "development"
+    ? "http://127.0.0.1:8000"
+    : "https://your-render-app.onrender.com");
 
 async function proxyRequest(request: NextRequest, path: string[]) {
-  const url = `${BACKEND_URL}/api/v1/${path.join("/")}`;
-  
+  const encodedPath = path.map(encodeURIComponent).join("/");
+  const url = `${BACKEND_URL}/api/v1/${encodedPath}${request.nextUrl.search}`;
+
   // Get the request body if present
   let body: string | undefined;
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -21,7 +26,11 @@ async function proxyRequest(request: NextRequest, path: string[]) {
   if (authHeader) {
     headers.set("Authorization", authHeader);
   }
-  headers.set("Content-Type", "application/json");
+
+  const contentType = request.headers.get("Content-Type");
+  if (contentType) {
+    headers.set("Content-Type", contentType);
+  }
 
   try {
     const response = await fetch(url, {

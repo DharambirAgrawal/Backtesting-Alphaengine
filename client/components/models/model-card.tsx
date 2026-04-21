@@ -3,8 +3,9 @@
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { RelativeDate } from "@/components/ui/relative-date";
 import { MODEL_TYPES } from "@/lib/constants";
-import { formatDate, formatNumber } from "@/lib/format";
+import { formatNumber } from "@/lib/format";
 import type { MLModel } from "@/lib/types";
 import { RefreshCw, TrendingUp, Database, Clock } from "lucide-react";
 
@@ -80,9 +81,7 @@ export function ModelCard({
           <div className="flex items-center gap-2 text-sm">
             <Clock className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-muted-foreground">Trained:</span>
-            <span className="text-foreground">
-              {formatDate(model.trained_at, "relative")}
-            </span>
+            <RelativeDate value={model.trained_at} className="text-foreground" />
           </div>
           <div className="flex items-center gap-2 text-sm">
             <Database className="h-3.5 w-3.5 text-muted-foreground" />

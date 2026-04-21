@@ -10,8 +10,11 @@ interface HeaderProps {
 }
 
 export function Header({ portfolioId, title }: HeaderProps) {
-  const { email, role } = useAuth();
+  const { email, role, isReady } = useAuth();
   const { portfolios } = usePortfolios();
+  const displayEmail = email ?? "Signed in";
+  const displayRole = isReady ? role ?? "user" : "Loading";
+  const initial = email?.charAt(0).toUpperCase() ?? "A";
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-border bg-card/50 px-6">
@@ -30,13 +33,13 @@ export function Header({ portfolioId, title }: HeaderProps) {
 
       <div className="flex items-center gap-4">
         <div className="text-right">
-          <p className="text-sm font-medium text-foreground">{email}</p>
-          <p className="text-xs text-muted-foreground capitalize">{role}</p>
+          <p className="text-sm font-medium text-foreground">{displayEmail}</p>
+          <p className="text-xs text-muted-foreground capitalize">
+            {displayRole}
+          </p>
         </div>
         <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">
-          <span className="text-sm font-medium text-primary">
-            {email?.charAt(0).toUpperCase()}
-          </span>
+          <span className="text-sm font-medium text-primary">{initial}</span>
         </div>
       </div>
     </header>
