@@ -30,9 +30,24 @@ class Settings(BaseSettings):
     # AI
     GEMINI_API_KEY: str | None = None
 
-    # Market data
+    # Market data (real providers only when synthetic is off — see IDEA.md / README)
     ALPHA_VANTAGE_KEY: str | None = None
     NEWS_API_KEY: str | None = None
+    # Prefer Stooq CSV before Yahoo when Yahoo blocks your IP (Codespaces / many hosts).
+    STOOQ_FIRST: bool = True
+    # When False (default), never invent OHLCV or hash-based prices — APIs must succeed.
+    ALLOW_SYNTHETIC_MARKET_DATA: bool = False
+    # When False (default), do not inject fake news headlines if NewsAPI fails or is missing.
+    ALLOW_SYNTHETIC_NEWS: bool = False
+    # When False (default), ticker search returns empty if Yahoo search fails (no static demo list).
+    ALLOW_SEARCH_FALLBACK_TICKERS: bool = False
+
+    # Agent scheduler: one cron per trading week (replace legacy 3× daily demo slots).
+    # When disabled, only manual POST /agent/{id}/run triggers runs.
+    AGENT_CRON_ENABLED: bool = True
+    AGENT_CRON_DAY_OF_WEEK: str = "mon-fri"
+    AGENT_CRON_HOUR: int = 9
+    AGENT_CRON_MINUTE: int = 35
 
     # App
     APP_SECRET: str = "dev-secret"

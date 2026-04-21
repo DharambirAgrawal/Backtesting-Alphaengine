@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +11,7 @@ from api import admin, agent, auth, dashboard, market, models as models_api, por
 from core.config import settings
 from core.database import get_db, init_models
 from core.security import auth_middleware
+from data.exceptions import MarketDataUnavailableError
 from scheduler.jobs import start_scheduler, stop_scheduler
 
 
@@ -30,6 +32,15 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(MarketDataUnavailableError)
+async def _market_data_unavailable_handler(_, exc: MarketDataUnavailableError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc)},
+    )
+
 
 app.add_middleware(
     CORSMiddleware,

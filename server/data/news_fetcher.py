@@ -8,6 +8,8 @@ from newsapi import NewsApiClient
 
 from core.config import settings
 
+# Real headlines only unless ALLOW_SYNTHETIC_NEWS=true (offline demos).
+
 POSITIVE_WORDS = {
     "beat",
     "growth",
@@ -50,7 +52,7 @@ def _fallback_news(ticker: str, limit: int) -> list[dict]:
 
 def _fetch_news_sync(ticker: str, limit: int) -> list[dict]:
     if not news_client:
-        return _fallback_news(ticker, limit)
+        return _fallback_news(ticker, limit) if settings.ALLOW_SYNTHETIC_NEWS else []
 
     try:
         payload = news_client.get_everything(
@@ -61,7 +63,7 @@ def _fetch_news_sync(ticker: str, limit: int) -> list[dict]:
         )
         articles = payload.get("articles", [])
         if not articles:
-            return _fallback_news(ticker, limit)
+            return _fallback_news(ticker, limit) if settings.ALLOW_SYNTHETIC_NEWS else []
 
         rows: list[dict] = []
         for article in articles:
@@ -78,7 +80,7 @@ def _fetch_news_sync(ticker: str, limit: int) -> list[dict]:
 
         return rows
     except Exception:
-        return _fallback_news(ticker, limit)
+        return _fallback_news(ticker, limit) if settings.ALLOW_SYNTHETIC_NEWS else []
 
 
 async def get_news(ticker: str, limit: int = 5) -> list[dict]:

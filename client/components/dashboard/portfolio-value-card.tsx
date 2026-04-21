@@ -54,6 +54,10 @@ export function PortfolioValueCard({
             ({formatPct(profitLossPct)})
           </span>
         </div>
+        <p className="mt-2 text-xs text-muted-foreground leading-snug">
+          Change vs starting capital (unrealized): cash plus holdings marked at the
+          latest quotes — no sells required.
+        </p>
       </CardContent>
     </Card>
   );

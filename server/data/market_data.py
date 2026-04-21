@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -9,6 +10,10 @@ import pandas as pd
 import yfinance as yf
 
 from core.config import settings
+from data.exceptions import MarketDataUnavailableError
+
+for _log in ("yfinance", "yfinance.base", "yfinance.ticker", "yfinance.scrapers"):
+    logging.getLogger(_log).setLevel(logging.ERROR)
 
 
 def _fallback_price(ticker: str) -> float:
@@ -218,41 +223,51 @@ def _synthetic_history(ticker: str, days: int) -> list[dict]:
     return rows
 
 
-def _fetch_ohlcv_chain(ticker: str, period: str = "2y") -> pd.DataFrame:
-    df = _yahoo_history_dataframe(ticker, period=period)
-    if df is not None and not df.empty:
-        return df
+def _daily_ohlcv_first_hit(ticker: str, period: str) -> pd.DataFrame:
+    """Try providers in order. Stooq-first avoids Yahoo IP blocks (same path for fills + marks)."""
+    seq: list[tuple[str, object]] = []
+    if settings.STOOQ_FIRST:
+        seq.append(("stooq", lambda: _stooq_daily_sync(ticker)))
+    seq.extend(
+        [
+            ("yahoo_history", lambda: _yahoo_history_dataframe(ticker, period=period)),
+            ("yahoo_download", lambda: _yahoo_download_dataframe(ticker, period=period)),
+        ]
+    )
+    if not settings.STOOQ_FIRST:
+        seq.append(("stooq", lambda: _stooq_daily_sync(ticker)))
+    seq.append(("alpha_vantage", lambda: _alpha_vantage_daily_sync(ticker)))
 
-    df = _yahoo_download_dataframe(ticker, period=period)
-    if df is not None and not df.empty:
-        return df
-
-    df = _alpha_vantage_daily_sync(ticker)
-    if df is not None and not df.empty:
-        return df
-
-    df = _stooq_daily_sync(ticker)
-    if df is not None and not df.empty:
-        return df
-
+    for _, fn in seq:
+        df = fn()
+        if df is not None and not df.empty:
+            return df
     return pd.DataFrame()
+
+
+def _fetch_ohlcv_chain(ticker: str, period: str = "2y") -> pd.DataFrame:
+    return _daily_ohlcv_first_hit(ticker, period)
+
+
+def _empty_chain_message(ticker: str) -> str:
+    return (
+        f"No real OHLCV returned for {ticker} from Stooq, Yahoo, or Alpha Vantage. "
+        "When the US cash equity session is closed or on holidays, daily feeds still "
+        "expose the **last completed session** close — fix network/API access or set "
+        "ALLOW_SYNTHETIC_MARKET_DATA=true only for offline dev."
+    )
 
 
 def _history_sync(ticker: str, days: int) -> list[dict]:
     period = f"{max(days + 5, 7)}d"
-    df = pd.DataFrame()
 
     try:
-        df = _yahoo_history_dataframe(ticker, period=period)
-        if df is None or df.empty:
-            df = _yahoo_download_dataframe(ticker, period=period)
-        if df is None or df.empty:
-            df = _alpha_vantage_daily_sync(ticker)
-        if df is None or df.empty:
-            df = _stooq_daily_sync(ticker)
+        df = _daily_ohlcv_first_hit(ticker, period)
 
         if df is None or df.empty:
-            return _synthetic_history(ticker, days)
+            if settings.ALLOW_SYNTHETIC_MARKET_DATA:
+                return _synthetic_history(ticker, days)
+            raise MarketDataUnavailableError(_empty_chain_message(ticker))
 
         df = df.tail(days)
         rows: list[dict] = []
@@ -270,9 +285,17 @@ def _history_sync(ticker: str, days: int) -> list[dict]:
                 }
             )
 
-        return rows if rows else _synthetic_history(ticker, days)
-    except Exception:
-        return _synthetic_history(ticker, days)
+        if rows:
+            return rows
+        if settings.ALLOW_SYNTHETIC_MARKET_DATA:
+            return _synthetic_history(ticker, days)
+        raise MarketDataUnavailableError(_empty_chain_message(ticker))
+    except MarketDataUnavailableError:
+        raise
+    except Exception as exc:
+        if settings.ALLOW_SYNTHETIC_MARKET_DATA:
+            return _synthetic_history(ticker, days)
+        raise MarketDataUnavailableError(_empty_chain_message(ticker)) from exc
 
 
 async def get_history(ticker: str, days: int = 30) -> list[dict]:
@@ -283,7 +306,9 @@ async def get_current_price(ticker: str) -> float:
     rows = await get_history(ticker, days=2)
     if rows:
         return float(rows[-1]["close"])
-    return _fallback_price(ticker)
+    if settings.ALLOW_SYNTHETIC_MARKET_DATA:
+        return _fallback_price(ticker)
+    raise MarketDataUnavailableError(_empty_chain_message(ticker))
 
 
 async def get_price_snapshot(ticker: str) -> dict:
@@ -295,8 +320,11 @@ async def get_price_snapshot(ticker: str) -> dict:
         last = float(rows[-1]["close"])
         prev = last
     else:
-        last = _fallback_price(ticker)
-        prev = last
+        if settings.ALLOW_SYNTHETIC_MARKET_DATA:
+            last = _fallback_price(ticker)
+            prev = last
+        else:
+            raise MarketDataUnavailableError(_empty_chain_message(ticker))
 
     change = last - prev
     change_pct = (change / prev * 100) if prev else 0.0

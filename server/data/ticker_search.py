@@ -4,6 +4,8 @@ import asyncio
 
 import yfinance as yf
 
+from core.config import settings
+from data.exceptions import MarketDataUnavailableError
 from data.market_data import get_current_price
 
 COMMON_TICKERS = [
@@ -55,6 +57,9 @@ async def search_tickers(query: str, limit: int = 10) -> list[dict]:
     if rows:
         return rows
 
+    if not settings.ALLOW_SEARCH_FALLBACK_TICKERS:
+        return []
+
     query_upper = query.upper()
     fallback = [
         item
@@ -72,5 +77,7 @@ async def validate_ticker(ticker: str) -> bool:
     try:
         price = await get_current_price(symbol)
         return price > 0
+    except MarketDataUnavailableError:
+        return False
     except Exception:
         return False
