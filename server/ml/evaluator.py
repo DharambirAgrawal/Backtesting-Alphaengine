@@ -32,7 +32,7 @@ async def record_prediction(
     ticker: str,
     model_type: str,
     predicted_price: float,
-    actual_price: float,
+    actual_price: float | None,
     prediction_date: date | None = None,
 ) -> PredictionHistory:
     row = PredictionHistory(
@@ -66,10 +66,15 @@ async def get_accuracy_series(
     actual: list[float] = []
 
     for row in rows:
+        predicted_value = float(row.predicted_price) if row.predicted_price is not None else None
+        actual_value = float(row.actual_price) if row.actual_price is not None else None
+        if predicted_value is None or actual_value is None or actual_value == 0:
+            continue
+
         dt = row.prediction_date.isoformat() if row.prediction_date else row.recorded_at.date().isoformat()
         dates.append(dt)
-        predicted.append(float(row.predicted_price or 0.0))
-        actual.append(float(row.actual_price or 0.0))
+        predicted.append(predicted_value)
+        actual.append(actual_value)
 
     point_scores = [_point_accuracy(p, a) for p, a in zip(predicted, actual)]
     rolling_accuracy = _rolling_average(point_scores, window=7) if point_scores else []

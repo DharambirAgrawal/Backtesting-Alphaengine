@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,16 +19,23 @@ async def list_users(
 ):
     stmt = select(User).order_by(User.created_at.asc())
     rows = (await db.scalars(stmt)).all()
-    return [
-        UserOut(
-            id=row.id,
-            email=row.email,
-            role=row.role,
-            is_active=row.is_active,
-            created_at=row.created_at,
-        )
-        for row in rows
-    ]
+    users: list[UserOut] = []
+    for row in rows:
+        try:
+            users.append(
+                UserOut(
+                    id=row.id,
+                    email=row.email,
+                    role=row.role,
+                    is_active=row.is_active,
+                    created_at=row.created_at,
+                )
+            )
+        except ValidationError:
+            # Skip malformed legacy rows so admin endpoints remain available.
+            continue
+
+    return users
 
 
 @router.post("/admin/users", response_model=MessageResponse)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -16,6 +17,7 @@ from agent.tools import (
 from api.utils import build_holdings_view, build_portfolio_out, get_portfolio_tickers, snapshot_portfolio
 from core.database import SessionLocal
 from core.models import AgentRun, Portfolio
+from data.market_data import get_current_price
 from ml.evaluator import record_prediction
 
 
@@ -33,6 +35,28 @@ def _build_reasoning(
         f"(p={direction.get('probability')}). RSI={technical.get('rsi')}, "
         f"MACD={technical.get('macd')}, sentiment={sentiment}. Action={action}."
     )
+
+
+async def _with_retries(
+    coro,
+    *args,
+    retries: int = 2,
+    base_delay_seconds: float = 0.6,
+    **kwargs,
+):
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return await coro(*args, **kwargs)
+        except Exception as exc:  # noqa: PERF203
+            last_error = exc
+            if attempt >= retries:
+                break
+            await asyncio.sleep(base_delay_seconds * (attempt + 1))
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("Retry helper reached an unexpected state")
 
 
 async def _load_or_create_run(
@@ -101,11 +125,16 @@ async def run_agent(
             summary_lines: list[str] = []
 
             for ticker in tickers:
-                prediction = await predict_price_tool(ticker, horizon_days=3)
-                direction = await classify_direction_tool(ticker)
-                technical = await get_technical_signals_tool(ticker)
-                sentiment = await get_sentiment_score_tool(ticker)
-                status = await get_portfolio_status_tool(db, portfolio_id)
+                try:
+                    prediction = await _with_retries(predict_price_tool, ticker, horizon_days=3)
+                    direction = await _with_retries(classify_direction_tool, ticker)
+                    technical = await _with_retries(get_technical_signals_tool, ticker)
+                    sentiment = await _with_retries(get_sentiment_score_tool, ticker)
+                    status = await _with_retries(get_portfolio_status_tool, db, portfolio_id)
+                    current_price = await _with_retries(get_current_price, ticker)
+                except Exception as exc:
+                    summary_lines.append(f"{ticker}: skipped due to tool error ({exc}).")
+                    continue
 
                 cash = float(status["current_cash"])
                 matching_holding = next(
@@ -152,25 +181,30 @@ async def run_agent(
                     ticker=ticker,
                     model_type="lstm",
                     predicted_price=float(prediction.get("predicted_price", 0.0)),
-                    actual_price=float(prediction.get("predicted_price", 0.0)),
+                    actual_price=float(current_price),
                 )
 
                 if action in {"BUY", "SELL"}:
-                    await execute_trade(
-                        db=db,
-                        portfolio_id=portfolio_id,
-                        ticker=ticker,
-                        action=action,
-                        amount_usd=amount_usd,
-                        shares=sell_shares,
-                        llm_reasoning=reasoning,
-                        tools_called={
-                            "lstm_prediction": prediction,
-                            "direction": direction,
-                            "technical_signals": technical,
-                            "sentiment_score": sentiment,
-                        },
-                    )
+                    try:
+                        await _with_retries(
+                            execute_trade,
+                            db=db,
+                            portfolio_id=portfolio_id,
+                            ticker=ticker,
+                            action=action,
+                            amount_usd=amount_usd,
+                            shares=sell_shares,
+                            llm_reasoning=reasoning,
+                            tools_called={
+                                "lstm_prediction": prediction,
+                                "direction": direction,
+                                "technical_signals": technical,
+                                "sentiment_score": sentiment,
+                            },
+                        )
+                    except Exception as exc:
+                        summary_lines.append(f"{ticker}: trade execution failed ({exc}).")
+                        continue
                     trades_made += 1
 
                 summary_lines.append(reasoning)

@@ -165,6 +165,36 @@ class ModelAccuracyOut(APIModel):
     rolling_accuracy: list[float] | None = None
 
 
+class ModelPortfolioReferenceOut(APIModel):
+    id: uuid.UUID
+    name: str
+    is_active: bool
+
+
+class ModelCoverageTickerOut(APIModel):
+    ticker: str
+    portfolios: list[ModelPortfolioReferenceOut]
+    trained_model_types: list[Literal["lstm", "xgboost"]]
+    missing_model_types: list[Literal["lstm", "xgboost"]]
+    coverage_pct: float
+    is_fully_trained: bool
+    last_trained_at: datetime | None = None
+
+
+class ModelOverviewSummaryOut(APIModel):
+    tracked_tickers: int
+    referenced_portfolios: int
+    trained_model_count: int
+    fully_trained_tickers: int
+    missing_model_count: int
+
+
+class ModelOverviewOut(APIModel):
+    summary: ModelOverviewSummaryOut
+    available_model_types: list[Literal["lstm", "xgboost"]]
+    coverage: list[ModelCoverageTickerOut]
+
+
 class TickerSearchResultOut(APIModel):
     ticker: str
     name: str

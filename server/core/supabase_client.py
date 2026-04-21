@@ -53,5 +53,16 @@ class SupabaseStorageClient:
         except Exception:
             return None
 
+    def remove(self, paths: list[str]) -> bool:
+        if not self.client or not paths:
+            return False
+
+        try:
+            bucket = self.client.storage.from_(settings.SUPABASE_BUCKET)
+            bucket.remove(paths)
+            return True
+        except Exception:
+            return False
+
 
 supabase_storage = SupabaseStorageClient()

@@ -3,13 +3,23 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_current_user, get_portfolio_or_404
 from api.utils import build_portfolio_out, get_portfolio_tickers, normalize_ticker, snapshot_portfolio
 from core.database import SessionLocal, get_db
-from core.models import Holding, Portfolio, PortfolioTicker, User
+from core.models import (
+    AgentRun,
+    Holding,
+    ModelRegistry,
+    Portfolio,
+    PortfolioSnapshot,
+    PortfolioTicker,
+    PredictionHistory,
+    Transaction,
+    User,
+)
 from core.schemas import (
     AddTickersRequest,
     MessageResponse,
@@ -17,6 +27,7 @@ from core.schemas import (
     PortfolioOut,
     PortfolioUpdateRequest,
 )
+from core.supabase_client import supabase_storage
 from ml.trainer import train_many_tickers
 
 router = APIRouter(tags=["portfolios"])
@@ -28,6 +39,50 @@ async def _train_tickers_background(tickers: list[str]) -> None:
 
     async with SessionLocal() as db:
         await train_many_tickers(db, tickers)
+
+
+async def _cleanup_orphaned_model_data(
+    db: AsyncSession,
+    tickers: list[str],
+) -> None:
+    if not tickers:
+        return
+
+    normalized = sorted({normalize_ticker(ticker) for ticker in tickers if ticker})
+    remaining_stmt = select(PortfolioTicker.ticker).where(PortfolioTicker.ticker.in_(normalized))
+    remaining = {str(item).upper() for item in (await db.scalars(remaining_stmt)).all()}
+    orphaned = [ticker for ticker in normalized if ticker not in remaining]
+
+    if not orphaned:
+        return
+
+    model_rows = (
+        await db.scalars(select(ModelRegistry).where(ModelRegistry.ticker.in_(orphaned)))
+    ).all()
+    storage_paths = [row.supabase_path for row in model_rows if row.supabase_path]
+    for row in model_rows:
+        await db.delete(row)
+
+    history_rows = (
+        await db.scalars(select(PredictionHistory).where(PredictionHistory.ticker.in_(orphaned)))
+    ).all()
+    for row in history_rows:
+        await db.delete(row)
+
+    await db.commit()
+
+    if storage_paths:
+        supabase_storage.remove(storage_paths)
+
+
+async def _delete_portfolio_children(db: AsyncSession, portfolio_id: str) -> None:
+    # Explicit child cleanup protects deletes when deployed DB constraints drift
+    # from SQLAlchemy model definitions (for example, legacy FKs without CASCADE).
+    await db.execute(delete(Transaction).where(Transaction.portfolio_id == portfolio_id))
+    await db.execute(delete(Holding).where(Holding.portfolio_id == portfolio_id))
+    await db.execute(delete(PortfolioSnapshot).where(PortfolioSnapshot.portfolio_id == portfolio_id))
+    await db.execute(delete(AgentRun).where(AgentRun.portfolio_id == portfolio_id))
+    await db.execute(delete(PortfolioTicker).where(PortfolioTicker.portfolio_id == portfolio_id))
 
 
 @router.get("/portfolios", response_model=list[PortfolioOut])
@@ -127,9 +182,12 @@ async def delete_portfolio(
     db: AsyncSession = Depends(get_db),
 ):
     portfolio = await get_portfolio_or_404(portfolio_id, db)
-    portfolio.is_active = False
+    tracked_tickers = await get_portfolio_tickers(db, portfolio.id)
+    await _delete_portfolio_children(db, str(portfolio.id))
+    await db.delete(portfolio)
     await db.commit()
-    return MessageResponse(message="Portfolio archived")
+    await _cleanup_orphaned_model_data(db, tracked_tickers)
+    return MessageResponse(message="Portfolio deleted")
 
 
 @router.post("/portfolios/{portfolio_id}/tickers", response_model=MessageResponse)
@@ -197,15 +255,22 @@ async def remove_ticker(
     if not ticker_row:
         raise HTTPException(status_code=404, detail="Ticker not found in portfolio")
 
-    await db.delete(ticker_row)
-
     holding = await db.scalar(
         select(Holding).where(Holding.portfolio_id == portfolio.id, Holding.ticker == symbol)
     )
-    if holding and float(holding.shares or 0) <= 0:
+    if holding and float(holding.shares or 0) > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot remove {symbol} while shares are still held",
+        )
+
+    await db.delete(ticker_row)
+
+    if holding:
         await db.delete(holding)
 
     await db.commit()
+    await _cleanup_orphaned_model_data(db, [symbol])
 
     return MessageResponse(message=f"Ticker {symbol} removed")
 

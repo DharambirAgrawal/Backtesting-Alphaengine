@@ -3,17 +3,36 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from statistics import fmean
 
+import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import ModelRegistry
 from core.supabase_client import supabase_storage
-from data.market_data import get_ohlcv_dataframe
+from data.market_data import get_history, get_ohlcv_dataframe
 from ml.features import add_technical_features
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
+
+
+def _features_from_history_rows(rows: list[dict]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame()
+
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return pd.DataFrame()
+
+    frame["date"] = pd.to_datetime(frame.get("date"), errors="coerce", utc=True)
+    frame = frame.dropna(subset=["date"]).set_index("date").sort_index()
+
+    for col in ["open", "high", "low", "close", "volume"]:
+        frame[col] = pd.to_numeric(frame.get(col), errors="coerce")
+
+    frame = frame.dropna(subset=["close", "volume"])
+    return add_technical_features(frame)
 
 
 async def _upsert_model(
@@ -55,6 +74,10 @@ async def train_ticker_models(db: AsyncSession, ticker: str) -> dict:
     symbol = ticker.upper()
     df = await get_ohlcv_dataframe(symbol, period="2y")
     features = add_technical_features(df)
+
+    if features.empty:
+        history_rows = await get_history(symbol, days=260)
+        features = _features_from_history_rows(history_rows)
 
     if features.empty:
         raise ValueError(f"Not enough historical data to train models for {symbol}")

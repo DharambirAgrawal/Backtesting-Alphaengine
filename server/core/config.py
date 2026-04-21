@@ -47,6 +47,18 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     @property
+    def database_url_async(self) -> str:
+        """Normalize common Render/Postgres URLs for SQLAlchemy async engine."""
+        url = self.DATABASE_URL.strip()
+        if url.startswith("postgresql+asyncpg://"):
+            return url
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if url.startswith("postgres://"):
+            return url.replace("postgres://", "postgresql+asyncpg://", 1)
+        return url
+
+    @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
 
