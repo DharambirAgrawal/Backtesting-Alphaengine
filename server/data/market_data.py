@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pandas as pd
 import yfinance as yf
+
+from core.config import settings
 
 
 def _fallback_price(ticker: str) -> float:
@@ -16,6 +20,175 @@ def _normalize_ohlcv_columns(df: pd.DataFrame) -> pd.DataFrame:
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [str(col[0]) for col in df.columns]
     return df
+
+
+def _period_to_max_days(period: str) -> int:
+    p = period.strip().lower()
+    if p.endswith("y"):
+        try:
+            return int(float(p[:-1]) * 365)
+        except ValueError:
+            return 730
+    if p.endswith("mo"):
+        try:
+            return int(float(p[:-2]) * 31)
+        except ValueError:
+            return 180
+    if p.endswith("d"):
+        try:
+            return int(p[:-1])
+        except ValueError:
+            return 30
+    return 730
+
+
+def _standardize_ohlcv_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = _normalize_ohlcv_columns(df)
+    rename_map = {
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "Adj Close": "adj_close",
+        "Volume": "volume",
+    }
+    out = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+    if "close" not in out.columns:
+        return pd.DataFrame()
+    return out
+
+
+def _yahoo_history_dataframe(ticker: str, period: str = "2y") -> pd.DataFrame:
+    """Prefer Ticker.history — often succeeds when yf.download hits quote JSON errors."""
+    try:
+        t = yf.Ticker(ticker)
+        df = t.history(period=period, interval="1d", auto_adjust=False)
+        df = _standardize_ohlcv_df(df)
+        return df if not df.empty else pd.DataFrame()
+    except (json.JSONDecodeError, ValueError, KeyError, OSError):
+        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+def _yahoo_download_dataframe(ticker: str, period: str = "2y") -> pd.DataFrame:
+    try:
+        df = yf.download(
+            ticker,
+            period=period,
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+        )
+        return _standardize_ohlcv_df(df)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _stooq_daily_sync(ticker: str) -> pd.DataFrame:
+    """Daily OHLCV CSV from Stooq — useful when Yahoo Finance blocks the server IP."""
+    raw_sym = ticker.strip().upper().replace("/", ".")
+    if "." not in raw_sym:
+        raw_sym = f"{raw_sym.lower()}.us"
+    else:
+        raw_sym = raw_sym.lower()
+    url = f"https://stooq.com/q/d/l/?s={raw_sym}&i=d"
+    try:
+        df = pd.read_csv(url)
+    except Exception:
+        return pd.DataFrame()
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    required = {"date", "open", "high", "low", "close"}
+    if not required.issubset(df.columns):
+        return pd.DataFrame()
+
+    vol_series = (
+        pd.to_numeric(df["volume"], errors="coerce").fillna(0.0)
+        if "volume" in df.columns
+        else pd.Series(0.0, index=df.index)
+    )
+    frame = pd.DataFrame(
+        {
+            "open": pd.to_numeric(df["open"], errors="coerce"),
+            "high": pd.to_numeric(df["high"], errors="coerce"),
+            "low": pd.to_numeric(df["low"], errors="coerce"),
+            "close": pd.to_numeric(df["close"], errors="coerce"),
+            "volume": vol_series,
+        }
+    )
+    frame.index = pd.to_datetime(df["date"], utc=True)
+    frame = frame.sort_index().dropna(subset=["close"])
+    max_days = _period_to_max_days("5y")
+    if len(frame) > max_days:
+        frame = frame.tail(max_days)
+    return frame
+
+
+def _alpha_vantage_daily_sync(ticker: str) -> pd.DataFrame:
+    key = settings.ALPHA_VANTAGE_KEY
+    if not key:
+        return pd.DataFrame()
+
+    url = "https://www.alphavantage.co/query"
+    params = {
+        "function": "TIME_SERIES_DAILY_ADJUSTED",
+        "symbol": ticker.upper(),
+        "outputsize": "full",
+        "apikey": key,
+    }
+    try:
+        with httpx.Client(timeout=45.0) as client:
+            r = client.get(url, params=params)
+            r.raise_for_status()
+            payload = r.json()
+    except Exception:
+        return pd.DataFrame()
+
+    if not isinstance(payload, dict):
+        return pd.DataFrame()
+    if payload.get("Note") or payload.get("Error Message"):
+        return pd.DataFrame()
+
+    series = payload.get("Time Series (Daily)") or payload.get("daily") or {}
+    if not isinstance(series, dict) or not series:
+        return pd.DataFrame()
+
+    rows: list[dict] = []
+    for date_str, bar in series.items():
+        if not isinstance(bar, dict):
+            continue
+        try:
+            rows.append(
+                {
+                    "date": date_str,
+                    "open": float(bar.get("1. open") or 0),
+                    "high": float(bar.get("2. high") or 0),
+                    "low": float(bar.get("3. low") or 0),
+                    "close": float(bar.get("5. adjusted close") or bar.get("4. close") or 0),
+                    "volume": float(bar.get("6. volume") or 0),
+                }
+            )
+        except (TypeError, ValueError):
+            continue
+
+    if not rows:
+        return pd.DataFrame()
+
+    frame = pd.DataFrame(rows)
+    frame["date"] = pd.to_datetime(frame["date"], utc=True)
+    frame = frame.set_index("date").sort_index()
+    max_days = _period_to_max_days("5y")
+    if len(frame) > max_days:
+        frame = frame.tail(max_days)
+    return frame
 
 
 def _synthetic_history(ticker: str, days: int) -> list[dict]:
@@ -45,21 +218,42 @@ def _synthetic_history(ticker: str, days: int) -> list[dict]:
     return rows
 
 
+def _fetch_ohlcv_chain(ticker: str, period: str = "2y") -> pd.DataFrame:
+    df = _yahoo_history_dataframe(ticker, period=period)
+    if df is not None and not df.empty:
+        return df
+
+    df = _yahoo_download_dataframe(ticker, period=period)
+    if df is not None and not df.empty:
+        return df
+
+    df = _alpha_vantage_daily_sync(ticker)
+    if df is not None and not df.empty:
+        return df
+
+    df = _stooq_daily_sync(ticker)
+    if df is not None and not df.empty:
+        return df
+
+    return pd.DataFrame()
+
+
 def _history_sync(ticker: str, days: int) -> list[dict]:
+    period = f"{max(days + 5, 7)}d"
+    df = pd.DataFrame()
+
     try:
-        period = f"{max(days + 2, 5)}d"
-        df = yf.download(
-            ticker,
-            period=period,
-            interval="1d",
-            auto_adjust=False,
-            progress=False,
-            threads=False,
-        )
+        df = _yahoo_history_dataframe(ticker, period=period)
+        if df is None or df.empty:
+            df = _yahoo_download_dataframe(ticker, period=period)
+        if df is None or df.empty:
+            df = _alpha_vantage_daily_sync(ticker)
+        if df is None or df.empty:
+            df = _stooq_daily_sync(ticker)
+
         if df is None or df.empty:
             return _synthetic_history(ticker, days)
 
-        df = _normalize_ohlcv_columns(df)
         df = df.tail(days)
         rows: list[dict] = []
 
@@ -68,11 +262,11 @@ def _history_sync(ticker: str, days: int) -> list[dict]:
             rows.append(
                 {
                     "date": ts.date().isoformat(),
-                    "open": float(row.get("Open", 0.0)),
-                    "high": float(row.get("High", 0.0)),
-                    "low": float(row.get("Low", 0.0)),
-                    "close": float(row.get("Close", 0.0)),
-                    "volume": float(row.get("Volume", 0.0)),
+                    "open": float(row.get("open", row.get("Open", 0.0))),
+                    "high": float(row.get("high", row.get("High", 0.0))),
+                    "low": float(row.get("low", row.get("Low", 0.0))),
+                    "close": float(row.get("close", row.get("Close", 0.0))),
+                    "volume": float(row.get("volume", row.get("Volume", 0.0))),
                 }
             )
 
@@ -117,32 +311,12 @@ async def get_price_snapshot(ticker: str) -> dict:
 
 
 def _ohlcv_sync(ticker: str, period: str = "2y") -> pd.DataFrame:
-    df = yf.download(
-        ticker,
-        period=period,
-        interval="1d",
-        auto_adjust=False,
-        progress=False,
-        threads=False,
-    )
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    df = _normalize_ohlcv_columns(df)
-    df = df.rename(columns={
-        "Open": "open",
-        "High": "high",
-        "Low": "low",
-        "Close": "close",
-        "Adj Close": "adj_close",
-        "Volume": "volume",
-    })
-    return df
+    return _fetch_ohlcv_chain(ticker, period=period)
 
 
 async def get_ohlcv_dataframe(ticker: str, period: str = "2y") -> pd.DataFrame:
     try:
         df = await asyncio.to_thread(_ohlcv_sync, ticker.upper(), period)
-        return df
+        return df if df is not None else pd.DataFrame()
     except Exception:
         return pd.DataFrame()

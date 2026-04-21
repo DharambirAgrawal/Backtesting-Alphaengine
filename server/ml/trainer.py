@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from statistics import fmean
 
-import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,13 +10,16 @@ from core.models import ModelRegistry
 from core.supabase_client import supabase_storage
 from data.market_data import get_history, get_ohlcv_dataframe
 from ml.features import add_technical_features
+from ml.model_fit import fit_lstm_price_direction, fit_xgb_direction
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
 
-def _features_from_history_rows(rows: list[dict]) -> pd.DataFrame:
+def _features_from_history_rows(rows: list[dict]):
+    import pandas as pd
+
     if not rows:
         return pd.DataFrame()
 
@@ -72,48 +74,50 @@ async def _upsert_model(
 
 async def train_ticker_models(db: AsyncSession, ticker: str) -> dict:
     symbol = ticker.upper()
-    df = await get_ohlcv_dataframe(symbol, period="2y")
+    df = await get_ohlcv_dataframe(symbol, period="5y")
     features = add_technical_features(df)
 
     if features.empty:
-        history_rows = await get_history(symbol, days=260)
+        history_rows = await get_history(symbol, days=756)
         features = _features_from_history_rows(history_rows)
 
     if features.empty:
         raise ValueError(f"Not enough historical data to train models for {symbol}")
 
     training_rows = int(len(features))
-    avg_return_5d = float(features["return_5d"].mean()) if "return_5d" in features else 0.0
-    avg_vol_ratio = (
-        float(features["volume_ratio"].tail(30).mean())
-        if "volume_ratio" in features and not features["volume_ratio"].tail(30).empty
-        else 1.0
-    )
-
-    base_score = 0.55 + abs(avg_return_5d) * 2 + (min(avg_vol_ratio, 2.0) - 1) * 0.05
-    lstm_accuracy = _clamp(base_score)
-    xgb_accuracy = _clamp(base_score - 0.03)
 
     lstm_path = f"lstm/{symbol}_lstm.pt"
     xgb_path = f"xgboost/{symbol}_xgb.pkl"
 
-    await _upsert_model(db, symbol, "lstm", lstm_accuracy, training_rows, lstm_path)
-    await _upsert_model(db, symbol, "xgboost", xgb_accuracy, training_rows, xgb_path)
+    xgb_pack, xgb_acc = fit_xgb_direction(features)
+    lstm_pack, lstm_acc = fit_lstm_price_direction(features)
 
-    # Upload lightweight placeholders so storage paths are valid even without full model binaries.
-    supabase_storage.upload_bytes(
-        lstm_path,
-        f"ticker={symbol}\nmodel=lstm\ntrained_at={datetime.now(timezone.utc).isoformat()}".encode(
-            "utf-8"
-        ),
-        content_type="text/plain",
-    )
     supabase_storage.upload_bytes(
         xgb_path,
-        f"ticker={symbol}\nmodel=xgboost\ntrained_at={datetime.now(timezone.utc).isoformat()}".encode(
-            "utf-8"
-        ),
-        content_type="text/plain",
+        xgb_pack["bytes"],
+        content_type="application/octet-stream",
+    )
+    supabase_storage.upload_bytes(
+        lstm_path,
+        lstm_pack["bytes"],
+        content_type="application/octet-stream",
+    )
+
+    await _upsert_model(
+        db,
+        symbol,
+        "xgboost",
+        _clamp(xgb_acc),
+        training_rows,
+        xgb_path,
+    )
+    await _upsert_model(
+        db,
+        symbol,
+        "lstm",
+        _clamp(lstm_acc),
+        training_rows,
+        lstm_path,
     )
 
     await db.commit()
@@ -122,8 +126,8 @@ async def train_ticker_models(db: AsyncSession, ticker: str) -> dict:
         "ticker": symbol,
         "training_rows": training_rows,
         "models": {
-            "lstm": round(lstm_accuracy, 4),
-            "xgboost": round(xgb_accuracy, 4),
+            "lstm": round(float(lstm_acc), 4),
+            "xgboost": round(float(xgb_acc), 4),
         },
     }
 

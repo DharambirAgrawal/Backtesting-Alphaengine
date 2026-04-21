@@ -10,6 +10,7 @@ class APIModel(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
         json_encoders={Decimal: float, uuid.UUID: str},
+        protected_namespaces=(),
     )
 
 

@@ -4,7 +4,7 @@ sqlalchemy[asyncio]==2.0.30
 asyncpg==0.29.0
 alembic==1.13.1
 
-yfinance==0.2.40
+yfinance==0.2.44
 pandas==2.2.2
 numpy==1.26.4
 newsapi-python==0.2.7

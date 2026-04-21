@@ -1,0 +1,15 @@
+# Render Blueprint — see https://render.com/docs/yaml-spec
+# Set env vars (DATABASE_URL, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, etc.) in the dashboard.
+
+services:
+  - type: web
+    name: alphaengine-api
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: ./server
+    plan: free
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.12"
