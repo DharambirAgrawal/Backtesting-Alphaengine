@@ -33,6 +33,10 @@ def _manual_symbol_candidate(query: str) -> list[dict]:
     symbol = raw.upper()
     if not SYMBOL_PATTERN.fullmatch(symbol):
         return []
+    # Avoid accepting plain company names like AMAZON/GOOGLE/WALMART
+    # as manual symbols when provider search is temporarily unavailable.
+    if "." not in symbol and "-" not in symbol and len(symbol) > 5:
+        return []
 
     return [
         {

@@ -28,6 +28,7 @@ from core.schemas import (
     PortfolioUpdateRequest,
 )
 from core.supabase_client import supabase_storage
+from data.ticker_search import validate_ticker
 from ml.trainer import train_many_tickers
 
 router = APIRouter(tags=["portfolios"])
@@ -119,6 +120,8 @@ async def create_portfolio(
         symbol = normalize_ticker(ticker)
         if not symbol or symbol in seen:
             continue
+        if not await validate_ticker(symbol):
+            continue
         seen.add(symbol)
         normalized_tickers.append(symbol)
 
@@ -203,10 +206,14 @@ async def add_tickers(
 
     existing = set(await get_portfolio_tickers(db, portfolio.id))
     to_add: list[str] = []
+    invalid: list[str] = []
 
     for raw in payload.tickers:
         symbol = normalize_ticker(raw)
         if not symbol or symbol in existing:
+            continue
+        if not await validate_ticker(symbol):
+            invalid.append(symbol)
             continue
         existing.add(symbol)
         to_add.append(symbol)
@@ -234,6 +241,10 @@ async def add_tickers(
     if to_add:
         asyncio.create_task(_train_tickers_background(to_add))
 
+    if invalid:
+        return MessageResponse(
+            message=f"Added {len(to_add)} ticker(s). Skipped invalid symbols: {', '.join(sorted(set(invalid)))}"
+        )
     return MessageResponse(message=f"Added {len(to_add)} ticker(s)")
 
 
