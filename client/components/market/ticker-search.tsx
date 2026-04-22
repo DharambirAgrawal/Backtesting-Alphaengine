@@ -89,7 +89,10 @@ export function TickerSearch({
               </div>
             )}
             {!isLoading && search.length > 0 && results.length === 0 && (
-              <CommandEmpty>No tickers found.</CommandEmpty>
+              <CommandEmpty>
+                No live matches found. If lookup is down, try an exact symbol
+                like AAPL.
+              </CommandEmpty>
             )}
             {!isLoading && results.length > 0 && (
               <CommandGroup heading="Results">

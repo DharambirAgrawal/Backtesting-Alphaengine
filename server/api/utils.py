@@ -16,6 +16,7 @@ from core.models import (
     Transaction,
 )
 from core.schemas import HoldingOut, PerformanceStatsOut, PortfolioOut, TransactionOut
+from data.exceptions import MarketDataUnavailableError
 from data.market_data import get_current_price
 
 
@@ -58,8 +59,13 @@ async def build_holdings_view(
         if shares <= 0:
             continue
 
-        current_price = await get_current_price(row.ticker)
         avg_buy = as_float(row.avg_buy_price)
+        try:
+            current_price = await get_current_price(row.ticker)
+        except MarketDataUnavailableError:
+            # If real-time providers are unavailable, keep the portfolio readable
+            # by valuing the position at cost basis instead of failing the request.
+            current_price = avg_buy
         value = shares * current_price
         cost_basis = shares * avg_buy
         profit_loss = value - cost_basis

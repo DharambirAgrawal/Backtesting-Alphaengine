@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 import yfinance as yf
 
@@ -20,6 +21,26 @@ COMMON_TICKERS = [
     {"ticker": "AMD", "name": "Advanced Micro Devices", "exchange": "NASDAQ", "type": "stock"},
     {"ticker": "INTC", "name": "Intel Corp.", "exchange": "NASDAQ", "type": "stock"},
 ]
+SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{1,9}$")
+
+
+def _manual_symbol_candidate(query: str) -> list[dict]:
+    raw = query.strip()
+    if raw != raw.upper():
+        return []
+
+    symbol = raw.upper()
+    if not SYMBOL_PATTERN.fullmatch(symbol):
+        return []
+
+    return [
+        {
+            "ticker": symbol,
+            "name": symbol,
+            "exchange": "Manual",
+            "type": "symbol",
+        }
+    ]
 
 
 def _search_sync(query: str, limit: int) -> list[dict]:
@@ -56,6 +77,10 @@ async def search_tickers(query: str, limit: int = 10) -> list[dict]:
     rows = await asyncio.to_thread(_search_sync, query, max(1, limit))
     if rows:
         return rows
+
+    manual = _manual_symbol_candidate(query)
+    if manual:
+        return manual[:limit]
 
     if not settings.ALLOW_SEARCH_FALLBACK_TICKERS:
         return []

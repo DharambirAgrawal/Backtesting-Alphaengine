@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import ModelRegistry
 from core.supabase_client import supabase_storage
+from data.exceptions import MarketDataUnavailableError
 from data.market_data import get_history, get_ohlcv_dataframe
 from ml.features import add_technical_features
 from ml.model_fit import fit_lstm_price_direction, fit_xgb_direction
@@ -74,12 +75,15 @@ async def _upsert_model(
 
 async def train_ticker_models(db: AsyncSession, ticker: str) -> dict:
     symbol = ticker.upper()
-    df = await get_ohlcv_dataframe(symbol, period="5y")
-    features = add_technical_features(df)
+    try:
+        df = await get_ohlcv_dataframe(symbol, period="5y")
+        features = add_technical_features(df)
 
-    if features.empty:
-        history_rows = await get_history(symbol, days=756)
-        features = _features_from_history_rows(history_rows)
+        if features.empty:
+            history_rows = await get_history(symbol, days=756)
+            features = _features_from_history_rows(history_rows)
+    except MarketDataUnavailableError as exc:
+        raise ValueError(str(exc)) from exc
 
     if features.empty:
         raise ValueError(f"Not enough historical data to train models for {symbol}")
