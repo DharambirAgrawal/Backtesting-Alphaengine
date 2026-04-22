@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     MARKET_TIMEZONE: str = "America/New_York"
     CORS_ORIGINS: str = "http://localhost:3000"
     KEEP_ALIVE_URL: str = "http://127.0.0.1:8000/health"
+    RENDER_EXTERNAL_URL: str | None = None
     AUTO_CREATE_TABLES: bool = True
 
     @property
@@ -77,6 +78,13 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
+
+    @property
+    def keep_alive_url(self) -> str:
+        if self.RENDER_EXTERNAL_URL:
+            base = self.RENDER_EXTERNAL_URL.rstrip("/")
+            return f"{base}/health"
+        return self.KEEP_ALIVE_URL
 
 
 @lru_cache

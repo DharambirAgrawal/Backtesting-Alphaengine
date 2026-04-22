@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from statistics import fmean
 
@@ -93,8 +94,8 @@ async def train_ticker_models(db: AsyncSession, ticker: str) -> dict:
     lstm_path = f"lstm/{symbol}_lstm.pt"
     xgb_path = f"xgboost/{symbol}_xgb.pkl"
 
-    xgb_pack, xgb_acc = fit_xgb_direction(features)
-    lstm_pack, lstm_acc = fit_lstm_price_direction(features)
+    xgb_pack, xgb_acc = await asyncio.to_thread(fit_xgb_direction, features)
+    lstm_pack, lstm_acc = await asyncio.to_thread(fit_lstm_price_direction, features)
 
     supabase_storage.upload_bytes(
         xgb_path,

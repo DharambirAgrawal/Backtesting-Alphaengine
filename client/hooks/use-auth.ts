@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useCallback, useEffect } from "react";
-import { login as loginApi, getMe } from "@/lib/api";
+import { login as loginApi, getMe, ApiError } from "@/lib/api";
 import {
   saveToken,
   getToken,
@@ -46,15 +46,18 @@ export function useAuth() {
     isLoading: isUserLoading,
   } = useSWR<User>(session.isReady && session.token ? "user" : null, getMe, {
     revalidateOnFocus: false,
-    onError: () => {
-      // If fetching user fails, logout
-      setSession({
-        token: null,
-        role: null,
-        email: null,
-        isReady: true,
-      });
-      authLogout();
+    onError: (err) => {
+      // Only invalidate local session on true auth failures.
+      // Keep users logged in during transient 5xx/cold-start/network errors.
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        setSession({
+          token: null,
+          role: null,
+          email: null,
+          isReady: true,
+        });
+        authLogout();
+      }
     },
   });
 

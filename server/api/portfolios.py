@@ -31,14 +31,16 @@ from core.supabase_client import supabase_storage
 from ml.trainer import train_many_tickers
 
 router = APIRouter(tags=["portfolios"])
+_background_train_semaphore = asyncio.Semaphore(1)
 
 
 async def _train_tickers_background(tickers: list[str]) -> None:
     if not tickers:
         return
 
-    async with SessionLocal() as db:
-        await train_many_tickers(db, tickers)
+    async with _background_train_semaphore:
+        async with SessionLocal() as db:
+            await train_many_tickers(db, tickers)
 
 
 async def _cleanup_orphaned_model_data(

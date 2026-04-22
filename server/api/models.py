@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_current_user, get_portfolio_or_404
 from api.utils import as_float
-from core.database import get_db
+from core.database import SessionLocal, get_db
 from core.models import ModelRegistry, Portfolio, PortfolioTicker, User
 from core.schemas import (
     MessageResponse,
@@ -22,6 +24,7 @@ from ml.trainer import train_many_tickers, train_ticker_models
 
 router = APIRouter(tags=["models"])
 MODEL_TYPES = ("lstm", "xgboost")
+_retrain_semaphore = asyncio.Semaphore(1)
 
 
 def _normalize_model_type(value: str) -> str | None:
@@ -43,6 +46,20 @@ async def _get_scoped_tickers(
 
     tickers = [str(item).upper() for item in (await db.scalars(stmt)).all()]
     return sorted(set(tickers))
+
+
+async def _train_ticker_background(ticker: str) -> None:
+    async with _retrain_semaphore:
+        async with SessionLocal() as background_db:
+            await train_ticker_models(background_db, ticker.upper())
+
+
+async def _retrain_many_background(tickers: list[str]) -> None:
+    if not tickers:
+        return
+    async with _retrain_semaphore:
+        async with SessionLocal() as background_db:
+            await train_many_tickers(background_db, tickers)
 
 
 @router.get("/models", response_model=list[ModelOut])
@@ -202,14 +219,15 @@ async def train_model(
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    try:
-        await train_ticker_models(db, ticker.upper())
-    except ValueError as exc:
+    # Validate ticker scope quickly, then run compute-heavy training off-request.
+    symbol = ticker.upper().strip()
+    if not symbol:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-    return MessageResponse(message=f"Training started for {ticker.upper()}")
+            detail="Ticker is required",
+        )
+    asyncio.create_task(_train_ticker_background(symbol))
+    return MessageResponse(message=f"Training queued for {symbol}")
 
 
 @router.post("/models/retrain-all", response_model=MessageResponse)
@@ -221,10 +239,10 @@ async def retrain_all_models(
     tickers = await _get_scoped_tickers(db, portfolio_id)
 
     if tickers:
-        await train_many_tickers(db, tickers)
+        asyncio.create_task(_retrain_many_background(tickers))
 
     scope = "portfolio" if portfolio_id else "tracked"
-    return MessageResponse(message=f"Retraining requested for {len(tickers)} {scope} ticker(s)")
+    return MessageResponse(message=f"Retraining queued for {len(tickers)} {scope} ticker(s)")
 
 
 @router.get("/models/{ticker}/accuracy", response_model=ModelAccuracyOut)

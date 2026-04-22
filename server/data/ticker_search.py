@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 
+import httpx
 import yfinance as yf
 
 from core.config import settings
@@ -69,12 +70,53 @@ def _search_sync(query: str, limit: int) -> list[dict]:
         return []
 
 
+def _alpha_vantage_symbol_search_sync(query: str, limit: int) -> list[dict]:
+    key = settings.ALPHA_VANTAGE_KEY
+    if not key:
+        return []
+
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            response = client.get(
+                "https://www.alphavantage.co/query",
+                params={
+                    "function": "SYMBOL_SEARCH",
+                    "keywords": query,
+                    "apikey": key,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except Exception:
+        return []
+
+    matches = payload.get("bestMatches", []) if isinstance(payload, dict) else []
+    rows: list[dict] = []
+    for item in matches:
+        symbol = str(item.get("1. symbol", "")).strip().upper()
+        if not symbol:
+            continue
+        rows.append(
+            {
+                "ticker": symbol,
+                "name": str(item.get("2. name", symbol)).strip(),
+                "exchange": str(item.get("4. region", "")).strip(),
+                "type": str(item.get("3. type", "stock")).strip().lower() or "stock",
+            }
+        )
+
+    return rows[:limit]
+
+
 async def search_tickers(query: str, limit: int = 10) -> list[dict]:
     query = query.strip()
     if not query:
         return []
 
     rows = await asyncio.to_thread(_search_sync, query, max(1, limit))
+    if rows:
+        return rows
+    rows = await asyncio.to_thread(_alpha_vantage_symbol_search_sync, query, max(1, limit))
     if rows:
         return rows
 

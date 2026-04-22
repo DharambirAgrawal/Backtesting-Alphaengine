@@ -42,7 +42,7 @@ async def retrain_all_models_job() -> None:
 async def keep_alive_ping() -> None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.get(settings.KEEP_ALIVE_URL)
+            await client.get(settings.keep_alive_url)
     except Exception:
         return
 

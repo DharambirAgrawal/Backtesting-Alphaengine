@@ -23,6 +23,16 @@ type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
 };
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const token = getToken();
   const headers = new Headers(options.headers);
@@ -54,7 +64,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         message = text;
       }
     }
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   const contentType = response.headers.get("content-type") ?? "";
