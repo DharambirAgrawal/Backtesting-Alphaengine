@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # Market data (real providers only when synthetic is off — see IDEA.md / README)
     ALPHA_VANTAGE_KEY: str | None = None
     NEWS_API_KEY: str | None = None
+    STOOQ_API_KEY: str | None = None
     # Prefer Stooq CSV before Yahoo when Yahoo blocks your IP (Codespaces / many hosts).
     STOOQ_FIRST: bool = True
     # When False (default), never invent OHLCV or hash-based prices — APIs must succeed.

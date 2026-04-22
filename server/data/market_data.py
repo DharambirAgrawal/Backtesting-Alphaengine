@@ -95,13 +95,17 @@ def _yahoo_download_dataframe(ticker: str, period: str = "2y") -> pd.DataFrame:
 
 
 def _stooq_daily_sync(ticker: str) -> pd.DataFrame:
-    """Daily OHLCV CSV from Stooq — useful when Yahoo Finance blocks the server IP."""
+    """Daily OHLCV CSV from Stooq. Requires STOOQ_API_KEY (free, get from stooq.com)."""
+    key = settings.STOOQ_API_KEY
+    if not key:
+        return pd.DataFrame()
+
     raw_sym = ticker.strip().upper().replace("/", ".")
     if "." not in raw_sym:
         raw_sym = f"{raw_sym.lower()}.us"
     else:
         raw_sym = raw_sym.lower()
-    url = f"https://stooq.com/q/d/l/?s={raw_sym}&i=d"
+    url = f"https://stooq.com/q/d/l/?s={raw_sym}&i=d&apikey={key}"
     try:
         df = pd.read_csv(url)
     except Exception:
@@ -144,7 +148,7 @@ def _alpha_vantage_daily_sync(ticker: str) -> pd.DataFrame:
 
     url = "https://www.alphavantage.co/query"
     params = {
-        "function": "TIME_SERIES_DAILY_ADJUSTED",
+        "function": "TIME_SERIES_DAILY",
         "symbol": ticker.upper(),
         "outputsize": "full",
         "apikey": key,
@@ -177,8 +181,8 @@ def _alpha_vantage_daily_sync(ticker: str) -> pd.DataFrame:
                     "open": float(bar.get("1. open") or 0),
                     "high": float(bar.get("2. high") or 0),
                     "low": float(bar.get("3. low") or 0),
-                    "close": float(bar.get("5. adjusted close") or bar.get("4. close") or 0),
-                    "volume": float(bar.get("6. volume") or 0),
+                    "close": float(bar.get("4. close") or 0),
+                    "volume": float(bar.get("5. volume") or 0),
                 }
             )
         except (TypeError, ValueError):
