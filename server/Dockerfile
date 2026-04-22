@@ -3,16 +3,16 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
-    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt \
+    && pip install --index-url https://download.pytorch.org/whl/cpu torch==2.3.0
 
 COPY . .
-
-ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 

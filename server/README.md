@@ -11,6 +11,7 @@ cd server
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install --index-url https://download.pytorch.org/whl/cpu torch==2.3.0
 ```
 
 2. Create `.env` from `.env.example` and fill required values.
