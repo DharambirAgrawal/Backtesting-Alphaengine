@@ -1,6 +1,7 @@
 import {
   getToken,
 } from "@/lib/auth";
+import { dispatchBackendDown, dispatchBackendUp } from "@/components/layout/connection-banner";
 import type {
   AgentRun,
   ChartData,
@@ -46,14 +47,25 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${API_PREFIX}${path}`, {
-    ...options,
-    headers,
-    credentials: "same-origin",
-    body: hasBody ? JSON.stringify(options.body) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_PREFIX}${path}`, {
+      ...options,
+      headers,
+      credentials: "same-origin",
+      body: hasBody ? JSON.stringify(options.body) : undefined,
+    });
+  } catch {
+    // Network error — backend is likely cold-starting or unreachable
+    dispatchBackendDown();
+    throw new ApiError("Cannot reach the server. It may be starting up, please wait.", 0);
+  }
 
   if (!response.ok) {
+    // 503 = Render cold-start; signal the connection banner
+    if (response.status === 503 || response.status === 0) {
+      dispatchBackendDown();
+    }
     let message = `Request failed (${response.status})`;
     const text = await response.text();
     if (text) {
@@ -66,6 +78,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     }
     throw new ApiError(message, response.status);
   }
+
+  // Successful response — dismiss any "backend starting" banner
+  dispatchBackendUp();
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {

@@ -32,8 +32,9 @@ AlphaEngine gives you a production-grade system that does all of this, runs on f
 
 ```
 Layer 1 — Data
-  Real-time prices from Yahoo Finance
+  Real-time prices and search from Finnhub (primary), Yahoo Finance (secondary)
   Company news headlines from NewsAPI
+  Daily OHLCV data from Stooq (historical) and Yahoo (current)
   Technical indicators computed on live data (RSI, MACD, Bollinger Bands)
 
 Layer 2 — Machine Learning Models
@@ -139,7 +140,8 @@ The brain of the system. A FastAPI server that runs the agent, trains ML models,
 | Database | PostgreSQL (Render) | All trades, portfolios, users |
 | Model storage | Supabase Storage | Trained ML model files |
 | AI agent | Gemini 1.5 Flash | Decision making and reasoning |
-| Price data | yfinance | Free real-time + historical OHLCV |
+| Primary Market API| Finnhub | High-speed ticker search and real-time quotes |
+| Fallback Data | yfinance + Stooq | Daily historical OHLCV data and fallback quoting |
 | News data | NewsAPI | Headlines per ticker |
 | ML — neural net | PyTorch LSTM | Price prediction |
 | ML — classifier | XGBoost | Direction classification |

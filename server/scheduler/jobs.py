@@ -44,11 +44,16 @@ def _is_trading_day(local_dt: datetime) -> bool:
 
 
 def _next_trading_day_open(local_dt: datetime) -> datetime:
+    """Advance until we land on a trading day at 09:35.
+    We set hour=12 before adding a day so timedelta always crosses midnight
+    cleanly; the next iteration immediately overwrites hour back to 09:35.
+    """
     cursor = local_dt
     while True:
         cursor = cursor.replace(hour=9, minute=35, second=0, microsecond=0)
         if _is_trading_day(cursor):
             return cursor
+        # Move the clock to midday before advancing — avoids DST edge cases
         cursor = cursor.replace(hour=12, minute=0, second=0, microsecond=0)
         cursor = cursor + timedelta(days=1)
 

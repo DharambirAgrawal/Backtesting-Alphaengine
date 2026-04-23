@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from agent.prompts import build_context
 from agent.tools import (
     classify_direction_tool,
     execute_trade,
@@ -138,7 +137,11 @@ Hard limits:
     try:
         genai.configure(api_key=settings.GEMINI_API_KEY)
         model = genai.GenerativeModel("gemini-1.5-flash")
-        response = await asyncio.to_thread(model.generate_content, prompt)
+        # 30-second hard timeout — prevents stalling the whole agent loop on slow/unavailable LLM
+        response = await asyncio.wait_for(
+            asyncio.to_thread(model.generate_content, prompt),
+            timeout=30.0,
+        )
         text = getattr(response, "text", "") or ""
         payload = _extract_json_object(text)
         if not isinstance(payload, dict):
@@ -301,12 +304,6 @@ async def run_agent(
             tickers = await get_portfolio_tickers(db, portfolio.id)
             holdings, _ = await build_holdings_view(db, portfolio.id)
             portfolio_out = await build_portfolio_out(db, portfolio)
-            _ = build_context(
-                portfolio=portfolio_out.model_dump(),
-                holdings=[item.model_dump() for item in holdings],
-                tickers=tickers,
-                session=session,
-            )
 
             if not tickers:
                 run.summary = "No tickers configured for this portfolio."

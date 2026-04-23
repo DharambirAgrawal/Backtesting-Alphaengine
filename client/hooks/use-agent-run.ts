@@ -11,59 +11,41 @@ import {
 import type { AgentRun } from "@/lib/types";
 
 export function useAgentRun(portfolioId: string | null) {
-  const [isRunning, setIsRunning] = useState(false);
+  const [isTriggering, setIsTriggering] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const { data, mutate } = useSWR<AgentRun[]>(
     portfolioId ? `agent-runs-${portfolioId}` : null,
     () => getAgentRuns(portfolioId as string),
     {
       revalidateOnFocus: false,
+      // Whenever the latest run is "running", poll SWR every 2 seconds to check status
+      refreshInterval: (data) => {
+        if (!data || data.length === 0) return 0;
+        return data[0].status === "running" ? 2000 : 0;
+      },
     }
   );
 
   // Get the most recent run
   const latestRun = data?.[0];
 
-  // Clear polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
-    };
-  }, []);
-
   const run = useCallback(async () => {
     if (!portfolioId) return;
 
-    setIsRunning(true);
+    setIsTriggering(true);
     setError(null);
 
     try {
       const runData = await triggerAgentRun(portfolioId);
-
-      // Start polling for completion
-      pollIntervalRef.current = setInterval(async () => {
-        const runs = await getAgentRuns(portfolioId);
-        const currentRun = runs.find((r) => r.id === runData.id);
-
-        if (currentRun?.status === "done" || currentRun?.status === "failed") {
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-          }
-          setIsRunning(false);
-          mutate();
-        }
-      }, 3000);
-
+      // Immediately mutate local cache to show as running, SWR will take over polling
+      await mutate();
       return runData;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to run agent");
-      setIsRunning(false);
       throw err;
+    } finally {
+      setIsTriggering(false);
     }
   }, [portfolioId, mutate]);
 
@@ -94,7 +76,7 @@ export function useAgentRun(portfolioId: string | null) {
   return {
     runs: data ?? [],
     latestRun,
-    isRunning: isRunning || latestRun?.status === "running",
+    isRunning: isTriggering || latestRun?.status === "running",
     error,
     run,
     pause,

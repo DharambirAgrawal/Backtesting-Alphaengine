@@ -91,22 +91,26 @@ export function Sidebar({ portfolioId }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300",
+        "flex h-screen flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 ease-in-out",
         collapsed ? "w-16" : "w-64"
       )}
     >
       {/* Logo */}
-      <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
-        {!collapsed && (
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10">
-              <TrendingUp className="h-4 w-4 text-primary" />
-            </div>
-            <span className="font-semibold text-sidebar-foreground">
-              AlphaEngine
-            </span>
-          </Link>
-        )}
+      <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4 overflow-hidden">
+        <Link
+          href="/dashboard"
+          className={cn(
+            "flex items-center gap-2 transition-all duration-300 overflow-hidden",
+            collapsed ? "w-0 opacity-0 pointer-events-none" : "w-auto opacity-100"
+          )}
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 shrink-0">
+            <TrendingUp className="h-4 w-4 text-primary" />
+          </div>
+          <span className="font-semibold text-sidebar-foreground whitespace-nowrap">
+            AlphaEngine
+          </span>
+        </Link>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -127,19 +131,27 @@ export function Sidebar({ portfolioId }: SidebarProps) {
         {mainNavItems.map((item) => {
           const isActive = isLinkActive(item.href, item.exact);
           return (
-            <Link
+              <Link
               key={item.href}
               href={item.href}
               prefetch
               className={cn(
                 "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                collapsed && "justify-center",
                 isActive
                   ? "bg-sidebar-accent text-sidebar-primary"
                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
               <item.icon className="h-4 w-4 shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
+              <span
+                className={cn(
+                  "overflow-hidden whitespace-nowrap transition-all duration-200",
+                  collapsed ? "w-0 opacity-0" : "w-auto opacity-100"
+                )}
+              >
+                {item.label}
+              </span>
             </Link>
           );
         })}
@@ -160,13 +172,21 @@ export function Sidebar({ portfolioId }: SidebarProps) {
                   prefetch
                   className={cn(
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    collapsed && "justify-center",
                     isActive
                       ? "bg-sidebar-accent text-sidebar-primary"
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                   )}
                 >
                   <item.icon className="h-4 w-4 shrink-0" />
-                  {!collapsed && <span>{item.label}</span>}
+                  <span
+                    className={cn(
+                      "overflow-hidden whitespace-nowrap transition-all duration-200",
+                      collapsed ? "w-0 opacity-0" : "w-auto opacity-100"
+                    )}
+                  >
+                    {item.label}
+                  </span>
                 </Link>
               );
             })}
@@ -185,7 +205,14 @@ export function Sidebar({ portfolioId }: SidebarProps) {
           )}
         >
           <LogOut className="h-4 w-4 shrink-0" />
-          {!collapsed && <span>Sign Out</span>}
+          <span
+            className={cn(
+              "overflow-hidden whitespace-nowrap transition-all duration-200",
+              collapsed ? "w-0 opacity-0" : "w-auto opacity-100"
+            )}
+          >
+            Sign Out
+          </span>
         </Button>
       </div>
     </aside>

@@ -8,9 +8,9 @@ export const CHART_PERIODS = [
 ] as const;
 
 export const CHART_COLORS = {
-  primary: "#06b6d4",
-  green: "#10b981",
-  red: "#ef4444",
+  primary: "#3b82f6", // Matches globals.css --primary electric blue 
+  green: "#10b981",   // Matches globals.css --profit
+  red: "#ef4444",     // Matches globals.css --loss
 } as const;
 
 export const ACTION_COLORS: Record<TradeAction, string> = {

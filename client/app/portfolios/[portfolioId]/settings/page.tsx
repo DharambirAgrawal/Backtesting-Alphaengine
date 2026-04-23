@@ -56,6 +56,8 @@ export default function PortfolioSettingsPage() {
   const [isAddingTicker, setIsAddingTicker] = useState(false);
   const [removingTicker, setRemovingTicker] = useState<string | null>(null);
   const [localTickers, setLocalTickers] = useState<string[]>([]);
+  // Preserve company names returned from search so badges show "AAPL · Apple Inc."
+  const [tickerNameMap, setTickerNameMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!portfolio) {
@@ -94,8 +96,14 @@ export default function PortfolioSettingsPage() {
       setLocalTickers((prev) =>
         prev.includes(ticker.ticker) ? prev : [...prev, ticker.ticker]
       );
+      // Store the company name so the badge can display it
+      if (ticker.name && ticker.name !== ticker.ticker) {
+        setTickerNameMap((prev) => ({ ...prev, [ticker.ticker]: ticker.name }));
+      }
       await addTickers(portfolioId, [ticker.ticker]);
-      toast.success(`Added ${ticker.ticker} (${ticker.name})`);
+      toast.success(`Added ${ticker.ticker}`, {
+        description: ticker.name !== ticker.ticker ? ticker.name : "Training models...",
+      });
       await refresh();
     } catch (error) {
       setLocalTickers((prev) => prev.filter((t) => t !== ticker.ticker));
@@ -243,28 +251,36 @@ export default function PortfolioSettingsPage() {
 
             {localTickers.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {localTickers.map((ticker) => (
-                  <Badge
-                    key={ticker}
-                    variant="outline"
-                    className="px-3 py-1.5 text-sm bg-secondary/30"
-                  >
-                    <span className="font-mono font-semibold mr-2">
-                      {ticker}
-                    </span>
-                    <button
-                      onClick={() => handleRemoveTicker(ticker)}
-                      disabled={removingTicker === ticker}
-                      className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+                {localTickers.map((ticker) => {
+                  const companyName = tickerNameMap[ticker];
+                  return (
+                    <Badge
+                      key={ticker}
+                      variant="outline"
+                      className="px-3 py-1.5 text-sm bg-secondary/30 transition-all duration-150"
                     >
-                      {removingTicker === ticker ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <X className="h-3 w-3" />
+                      <span className="font-mono font-semibold">
+                        {ticker}
+                      </span>
+                      {companyName && (
+                        <span className="text-muted-foreground text-xs ml-1.5 mr-1">
+                          · {companyName.length > 22 ? companyName.slice(0, 22) + "…" : companyName}
+                        </span>
                       )}
-                    </button>
-                  </Badge>
-                ))}
+                      <button
+                        onClick={() => handleRemoveTicker(ticker)}
+                        disabled={removingTicker === ticker}
+                        className="ml-1.5 text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+                      >
+                        {removingTicker === ticker ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <X className="h-3 w-3" />
+                        )}
+                      </button>
+                    </Badge>
+                  );
+                })}
               </div>
             )}
           </CardContent>

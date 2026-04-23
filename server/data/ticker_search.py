@@ -10,45 +10,58 @@ from core.config import settings
 from data.exceptions import MarketDataUnavailableError
 from data.market_data import get_current_price
 
-COMMON_TICKERS = [
-    {"ticker": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ", "type": "stock"},
-    {"ticker": "MSFT", "name": "Microsoft Corp.", "exchange": "NASDAQ", "type": "stock"},
-    {"ticker": "NVDA", "name": "NVIDIA Corp.", "exchange": "NASDAQ", "type": "stock"},
-    {"ticker": "TSLA", "name": "Tesla Inc.", "exchange": "NASDAQ", "type": "stock"},
-    {"ticker": "AMZN", "name": "Amazon.com Inc.", "exchange": "NASDAQ", "type": "stock"},
-    {"ticker": "GOOGL", "name": "Alphabet Inc.", "exchange": "NASDAQ", "type": "stock"},
-    {"ticker": "META", "name": "Meta Platforms Inc.", "exchange": "NASDAQ", "type": "stock"},
-    {"ticker": "NFLX", "name": "Netflix Inc.", "exchange": "NASDAQ", "type": "stock"},
-    {"ticker": "AMD", "name": "Advanced Micro Devices", "exchange": "NASDAQ", "type": "stock"},
-    {"ticker": "INTC", "name": "Intel Corp.", "exchange": "NASDAQ", "type": "stock"},
-]
 SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{1,9}$")
 
+# ---------------------------------------------------------------------------
+# Provider 1: Finnhub Symbol Lookup  (primary — free, 60 req/min)
+# Docs: https://finnhub.io/docs/api/symbol-lookup
+# Returns displaySymbol, description, type — fast and reliable
+# ---------------------------------------------------------------------------
 
-def _manual_symbol_candidate(query: str) -> list[dict]:
-    raw = query.strip()
-    if raw != raw.upper():
+def _finnhub_search_sync(query: str, limit: int) -> list[dict]:
+    key = settings.FINNHUB_API_KEY
+    if not key:
         return []
 
-    symbol = raw.upper()
-    if not SYMBOL_PATTERN.fullmatch(symbol):
+    try:
+        with httpx.Client(timeout=6.0) as client:
+            response = client.get(
+                "https://finnhub.io/api/v1/search",
+                params={"q": query, "token": key},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except Exception:
         return []
-    # Avoid accepting plain company names like AMAZON/GOOGLE/WALMART
-    # as manual symbols when provider search is temporarily unavailable.
-    if "." not in symbol and "-" not in symbol and len(symbol) > 5:
+
+    if not isinstance(payload, dict):
         return []
 
-    return [
-        {
-            "ticker": symbol,
-            "name": symbol,
-            "exchange": "Manual",
-            "type": "symbol",
-        }
-    ]
+    matches = payload.get("result", [])
+    rows: list[dict] = []
+    for item in matches:
+        symbol = str(item.get("displaySymbol") or item.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        description = str(item.get("description") or symbol).strip()
+        item_type = str(item.get("type") or "stock").strip().lower()
+        rows.append(
+            {
+                "ticker": symbol,
+                "name": description,
+                "exchange": "",  # Finnhub basic search doesn't return exchange on free tier
+                "type": item_type if item_type else "stock",
+            }
+        )
+
+    return rows[:limit]
 
 
-def _search_sync(query: str, limit: int) -> list[dict]:
+# ---------------------------------------------------------------------------
+# Provider 2: Yahoo Finance Search  (secondary — unofficial, good coverage)
+# ---------------------------------------------------------------------------
+
+def _yahoo_search_sync(query: str, limit: int) -> list[dict]:
     try:
         search = yf.Search(query=query, max_results=limit)
         quotes = getattr(search, "quotes", []) or []
@@ -61,9 +74,7 @@ def _search_sync(query: str, limit: int) -> list[dict]:
             rows.append(
                 {
                     "ticker": symbol.upper(),
-                    "name": quote.get("shortname")
-                    or quote.get("longname")
-                    or symbol.upper(),
+                    "name": quote.get("shortname") or quote.get("longname") or symbol.upper(),
                     "exchange": quote.get("exchange") or quote.get("exchDisp") or "",
                     "type": quote.get("quoteType") or "stock",
                 }
@@ -74,7 +85,12 @@ def _search_sync(query: str, limit: int) -> list[dict]:
         return []
 
 
-def _alpha_vantage_symbol_search_sync(query: str, limit: int) -> list[dict]:
+# ---------------------------------------------------------------------------
+# Provider 3: Alpha Vantage Symbol Search  (tertiary — official free tier)
+# 25 req/day on free plan — used only when Finnhub + Yahoo both fail
+# ---------------------------------------------------------------------------
+
+def _alpha_vantage_search_sync(query: str, limit: int) -> list[dict]:
     key = settings.ALPHA_VANTAGE_KEY
     if not key:
         return []
@@ -112,11 +128,43 @@ def _alpha_vantage_symbol_search_sync(query: str, limit: int) -> list[dict]:
     return rows[:limit]
 
 
-def _rank_search_rows(query: str, rows: list[dict], limit: int) -> list[dict]:
+# ---------------------------------------------------------------------------
+# Manual symbol candidate — handles exact uppercase tickers typed by user
+# ---------------------------------------------------------------------------
+
+def _manual_symbol_candidate(query: str) -> list[dict]:
+    raw = query.strip()
+    if raw != raw.upper():
+        return []
+
+    symbol = raw.upper()
+    if not SYMBOL_PATTERN.fullmatch(symbol):
+        return []
+
+    # Avoid treating plain company names (AMAZON, GOOGLE) as manual symbols
+    if "." not in symbol and "-" not in symbol and len(symbol) > 5:
+        return []
+
+    return [
+        {
+            "ticker": symbol,
+            "name": symbol,
+            "exchange": "Unknown",
+            "type": "stock",
+        }
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Ranking + deduplication
+# ---------------------------------------------------------------------------
+
+def _rank_and_deduplicate(query: str, rows: list[dict], limit: int) -> list[dict]:
     q = query.strip().upper()
     if not q:
         return rows[:limit]
 
+    # Deduplicate by ticker symbol
     dedup: dict[str, dict] = {}
     for row in rows:
         symbol = str(row.get("ticker", "")).upper().strip()
@@ -127,7 +175,7 @@ def _rank_search_rows(query: str, rows: list[dict], limit: int) -> list[dict]:
 
     def score(row: dict) -> tuple[int, int]:
         ticker = str(row.get("ticker", "")).upper()
-        name = str(row.get("name", "")).upper()
+        name = str(row.get("name", "")).upper().strip()
         type_ = str(row.get("type", "")).lower()
 
         s = 0
@@ -139,46 +187,64 @@ def _rank_search_rows(query: str, rows: list[dict], limit: int) -> list[dict]:
             s += 120
         if q in name:
             s += 100
-        if type_ in {"stock", "equity", "etf"}:
+        if type_ in {"stock", "equity", "etf", "common stock"}:
             s += 30
+        # Penalise very short tickers when query is longer (e.g. "AM" vs "AMZN")
+        if len(q) >= 3 and len(ticker) <= 2 and ticker != q:
+            s -= 220
 
-        # Prefer closer-length symbols for user intent (AMZN over AM when query=AMZN)
         length_penalty = abs(len(ticker) - len(q))
         return (s, -length_penalty)
 
-    ranked = sorted(dedup.values(), key=score, reverse=True)
+    ranked = sorted(list(dedup.values()), key=score, reverse=True)
     return ranked[:limit]
 
 
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 async def search_tickers(query: str, limit: int = 10) -> list[dict]:
+    """
+    Search for ticker symbols by name or symbol.
+
+    Pipeline (parallel where safe):
+      1. Finnhub symbol search (primary — fast, reliable)
+      2. Yahoo Finance search (secondary — broad coverage)
+      3. Alpha Vantage symbol search (tertiary — official fallback, rate-limited)
+      4. Manual symbol candidate (user typed an exact uppercase symbol)
+    """
     query = query.strip()
     if not query:
         return []
 
-    max_limit = max(1, limit)
-    yahoo_rows = await asyncio.to_thread(_search_sync, query, max_limit * 2)
-    av_rows = await asyncio.to_thread(_alpha_vantage_symbol_search_sync, query, max_limit * 2)
-    merged = _rank_search_rows(query, [*yahoo_rows, *av_rows], max_limit)
+    max_fetch = max(1, limit) * 2
+
+    # Run all three live providers concurrently
+    finnhub_rows, yahoo_rows, av_rows = await asyncio.gather(
+        asyncio.to_thread(_finnhub_search_sync, query, max_fetch),
+        asyncio.to_thread(_yahoo_search_sync, query, max_fetch),
+        asyncio.to_thread(_alpha_vantage_search_sync, query, max_fetch),
+    )
+
+    merged = _rank_and_deduplicate(
+        query,
+        [*finnhub_rows, *yahoo_rows, *av_rows],
+        limit,
+    )
     if merged:
         return merged
 
+    # No live results — try manual exact-symbol match
     manual = _manual_symbol_candidate(query)
     if manual:
         return manual[:limit]
 
-    if not settings.ALLOW_SEARCH_FALLBACK_TICKERS:
-        return []
-
-    query_upper = query.upper()
-    fallback = [
-        item
-        for item in COMMON_TICKERS
-        if query_upper in item["ticker"] or query.lower() in item["name"].lower()
-    ]
-    return fallback[:limit]
+    return []
 
 
 async def validate_ticker(ticker: str) -> bool:
+    """Return True if the ticker has a fetchable live price."""
     symbol = ticker.strip().upper()
     if not symbol:
         return False

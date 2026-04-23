@@ -23,12 +23,16 @@ export function useDashboard(portfolioId: string | null) {
   };
 }
 
-export function useChartData(portfolioId: string | null, period: string = "1M") {
+export function useChartData(
+  portfolioId: string | null,
+  period: string = "1M"
+) {
   const { data, error, isLoading, mutate } = useSWR<ChartData>(
     portfolioId ? `chart-${portfolioId}-${period}` : null,
     () => getChartData(portfolioId as string, period),
     {
       revalidateOnFocus: false,
+      keepPreviousData: true,
     }
   );
 

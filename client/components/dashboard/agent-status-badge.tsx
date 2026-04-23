@@ -7,12 +7,14 @@ import { Play, Pause, Loader2 } from "lucide-react";
 interface AgentStatusBadgeProps {
   status: "active" | "paused" | "running";
   nextRun?: string | null;
+  timezoneLabel?: string;
   className?: string;
 }
 
 export function AgentStatusBadge({
   status,
   nextRun,
+  timezoneLabel = "ET",
   className,
 }: AgentStatusBadgeProps) {
   const countdown = useCountdown(status === "active" ? nextRun || null : null);
@@ -33,7 +35,7 @@ export function AgentStatusBadge({
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-profit opacity-75" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-profit" />
           </span>
-          <span>Next run in {countdown || "..."}</span>
+          <span>Next run in {countdown || "..."} ({timezoneLabel})</span>
         </>
       )}
       {status === "paused" && (

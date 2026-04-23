@@ -34,10 +34,8 @@ export default function PortfolioDashboardPage() {
       await run();
       toast.success("Agent run started", {
         description: "The agent is analyzing the market and making decisions.",
-      });
-      // Refresh dashboard after run completes
-      setTimeout(() => refresh(), 5000);
-    } catch {
+      // We no longer need setTimeout; the agent run hook has SWR polling.
+      // SWR will pick up the running state and the completed state automatically.
       toast.error("Failed to start agent run");
     }
   };
@@ -76,6 +74,7 @@ export default function PortfolioDashboardPage() {
             <AgentStatusBadge
               status={agentStatus}
               nextRun={dashboard?.next_run}
+              timezoneLabel="ET"
             />
           </div>
           <div className="flex items-center gap-2">

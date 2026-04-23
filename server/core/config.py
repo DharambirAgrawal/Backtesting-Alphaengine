@@ -32,11 +32,13 @@ class Settings(BaseSettings):
     # Market data
     ALPHA_VANTAGE_KEY: str | None = None
     NEWS_API_KEY: str | None = None
+    # Ticker search providers (Finnhub is the primary; Alpha Vantage is fallback)
+    FINNHUB_API_KEY: str | None = None
+    # OHLCV data providers (separate from search — Stooq works for historical data)
     STOOQ_API_KEY: str | None = None
     STOOQ_FIRST: bool = True
     ALLOW_SYNTHETIC_MARKET_DATA: bool = False
     ALLOW_SYNTHETIC_NEWS: bool = False
-    ALLOW_SEARCH_FALLBACK_TICKERS: bool = False
 
     # Scheduler
     AGENT_CRON_ENABLED: bool = True
