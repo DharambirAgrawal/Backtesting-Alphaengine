@@ -32,11 +32,11 @@ def create_access_token(payload: dict[str, Any]) -> str:
     to_encode["exp"] = datetime.now(timezone.utc) + timedelta(
         days=settings.JWT_EXPIRE_DAYS
     )
-    return jwt.encode(to_encode, settings.JWT_SECRET, algorithm="HS256")
+    return jwt.encode(to_encode, settings.jwt_secret, algorithm="HS256")
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
-    return jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
+    return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
 
 
 async def auth_middleware(request: Request, call_next):

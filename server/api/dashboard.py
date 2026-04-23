@@ -11,15 +11,16 @@ from api.utils import (
     as_float,
     build_holdings_view,
     build_performance_stats,
-    build_portfolio_out,
     get_agent_runs,
+    get_portfolio_tickers,
     get_recent_transactions,
     snapshot_portfolio,
+    _portfolio_out_from_values,
 )
 from core.database import get_db
 from core.models import PortfolioSnapshot, User
 from core.schemas import AgentRunOut, ChartDataOut, DashboardOut, PerformanceStatsOut
-from scheduler.jobs import get_next_run_time
+from scheduler.jobs import get_next_run_time_for_portfolio
 
 router = APIRouter(tags=["dashboard"])
 
@@ -43,13 +44,16 @@ async def get_dashboard(
 ):
     portfolio = await get_portfolio_or_404(portfolio_id, db)
 
-    portfolio_out = await build_portfolio_out(db, portfolio)
-    holdings, _ = await build_holdings_view(db, portfolio.id)
-    performance = await build_performance_stats(db, portfolio.id)
+    holdings, holdings_value = await build_holdings_view(db, portfolio.id)
+    tickers = await get_portfolio_tickers(db, portfolio.id)
+    portfolio_out = _portfolio_out_from_values(portfolio, tickers, holdings_value)
+    performance = await build_performance_stats(db, portfolio.id, portfolio_out=portfolio_out)
     recent_transactions = await get_recent_transactions(db, portfolio.id, limit=5)
     runs = await get_agent_runs(db, portfolio.id, limit=10)
 
-    next_run_dt = get_next_run_time() if portfolio.is_active else None
+    next_run_dt = (
+        get_next_run_time_for_portfolio(str(portfolio.id)) if portfolio.is_active else None
+    )
     next_run = next_run_dt.isoformat() if next_run_dt else None
 
     return DashboardOut(

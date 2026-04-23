@@ -11,7 +11,7 @@ interface HeaderProps {
 
 export function Header({ portfolioId, title }: HeaderProps) {
   const { email, role, isReady } = useAuth();
-  const { portfolios } = usePortfolios();
+  const { portfolios } = usePortfolios(Boolean(portfolioId));
   const displayEmail = email ?? "Signed in";
   const displayRole = isReady ? role ?? "user" : "Loading";
   const initial = email?.charAt(0).toUpperCase() ?? "A";

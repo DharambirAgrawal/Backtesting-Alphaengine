@@ -44,14 +44,15 @@ The app serves health at `/health` and API routes under `/api/v1`.
 - `SUPABASE_SERVICE_KEY`
 - `SUPABASE_BUCKET`
 - `GEMINI_API_KEY`
+- `AGENT_DECISION_MODE` (`rules`, `hybrid`, `gemini`)
+- `STOOQ_API_KEY`
 - `NEWS_API_KEY`
 - `ALPHA_VANTAGE_KEY`
-- `CORS_ORIGINS`
-- `MARKET_TIMEZONE`
-- `KEEP_ALIVE_URL`
+- `RENDER_EXTERNAL_URL`
 
 ## Market data and scheduling
 
-- **Real data:** By default (`ALLOW_SYNTHETIC_MARKET_DATA=false`) all quotes use Stooq/Yahoo/Alpha Vantage only. After the US cash session closes (for example 6:32 PM Central), daily feeds still return the **last completed session’s** close — that is real data, not intraday streaming.
-- **Holidays / weekends:** The latest bar is the previous **trading** day from the provider; there is no fake fill price unless you explicitly enable synthetic mode for offline demos.
-- **Agent schedule:** Automatic runs use **one** cron (`AGENT_CRON_*`, weekdays by default at 9:35 `MARKET_TIMEZONE`). Set `AGENT_CRON_ENABLED=false` for manual-only runs (`POST /api/v1/agent/{portfolio_id}/run`). The trading loop in `agent/runner.py` is currently **rule-based**; wiring an LLM to choose the *next* run time would be a separate feature.
+- **Real data:** Quotes use real providers only (Stooq/Yahoo/Alpha Vantage). When markets are closed, daily feeds still return the **last completed session** close.
+- **Holidays / weekends:** Scheduling skips non-trading days using market-day guards.
+- **Agent schedule:** Fixed multi-run baseline and adaptive per-portfolio follow-up scheduling are both enabled by backend constants in `core/config.py`. Dashboard `next_run` reflects the earliest scheduled time for that portfolio.
+- **Decision engine:** `AGENT_DECISION_MODE=hybrid` combines deterministic rules + model/news signals + Gemini interpretation, with hard risk rails before any trade executes.

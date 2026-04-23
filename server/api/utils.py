@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 from datetime import datetime, timezone
 
@@ -40,6 +41,13 @@ async def get_portfolio_tickers(db: AsyncSession, portfolio_id) -> list[str]:
     return [str(row).upper() for row in rows]
 
 
+async def _price_for_holding(ticker: str, avg_buy: float) -> float:
+    try:
+        return await get_current_price(ticker)
+    except MarketDataUnavailableError:
+        return avg_buy
+
+
 async def build_holdings_view(
     db: AsyncSession,
     portfolio_id,
@@ -51,21 +59,20 @@ async def build_holdings_view(
     )
     rows = (await db.scalars(stmt)).all()
 
+    eligible = [row for row in rows if as_float(row.shares) > 0]
+    if not eligible:
+        return [], 0.0
+
+    prices = await asyncio.gather(
+        *[_price_for_holding(row.ticker, as_float(row.avg_buy_price)) for row in eligible]
+    )
+
     output: list[HoldingOut] = []
     holdings_value = 0.0
 
-    for row in rows:
+    for row, current_price in zip(eligible, prices, strict=True):
         shares = as_float(row.shares)
-        if shares <= 0:
-            continue
-
         avg_buy = as_float(row.avg_buy_price)
-        try:
-            current_price = await get_current_price(row.ticker)
-        except MarketDataUnavailableError:
-            # If real-time providers are unavailable, keep the portfolio readable
-            # by valuing the position at cost basis instead of failing the request.
-            current_price = avg_buy
         value = shares * current_price
         cost_basis = shares * avg_buy
         profit_loss = value - cost_basis
@@ -88,10 +95,11 @@ async def build_holdings_view(
     return output, round(holdings_value, 2)
 
 
-async def build_portfolio_out(db: AsyncSession, portfolio: Portfolio) -> PortfolioOut:
-    tickers = await get_portfolio_tickers(db, portfolio.id)
-    _, holdings_value = await build_holdings_view(db, portfolio.id)
-
+def _portfolio_out_from_values(
+    portfolio: Portfolio,
+    tickers: list[str],
+    holdings_value: float,
+) -> PortfolioOut:
     current_cash = as_float(portfolio.current_cash)
     starting_capital = as_float(portfolio.starting_capital)
     total_value = current_cash + holdings_value
@@ -112,6 +120,12 @@ async def build_portfolio_out(db: AsyncSession, portfolio: Portfolio) -> Portfol
         tickers=tickers,
         created_at=portfolio.created_at,
     )
+
+
+async def build_portfolio_out(db: AsyncSession, portfolio: Portfolio) -> PortfolioOut:
+    tickers = await get_portfolio_tickers(db, portfolio.id)
+    _, holdings_value = await build_holdings_view(db, portfolio.id)
+    return _portfolio_out_from_values(portfolio, tickers, holdings_value)
 
 
 def transaction_to_out(tx: Transaction) -> TransactionOut:
@@ -151,12 +165,18 @@ async def snapshot_portfolio(db: AsyncSession, portfolio_id) -> PortfolioSnapsho
     return snapshot
 
 
-async def build_performance_stats(db: AsyncSession, portfolio_id) -> PerformanceStatsOut:
+async def build_performance_stats(
+    db: AsyncSession,
+    portfolio_id,
+    *,
+    portfolio_out: PortfolioOut | None = None,
+) -> PerformanceStatsOut:
     portfolio = await db.get(Portfolio, portfolio_id)
     if not portfolio:
         raise ValueError("Portfolio not found")
 
-    portfolio_out = await build_portfolio_out(db, portfolio)
+    if portfolio_out is None:
+        portfolio_out = await build_portfolio_out(db, portfolio)
 
     tx_stmt = (
         select(Transaction)

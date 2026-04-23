@@ -112,17 +112,55 @@ def _alpha_vantage_symbol_search_sync(query: str, limit: int) -> list[dict]:
     return rows[:limit]
 
 
+def _rank_search_rows(query: str, rows: list[dict], limit: int) -> list[dict]:
+    q = query.strip().upper()
+    if not q:
+        return rows[:limit]
+
+    dedup: dict[str, dict] = {}
+    for row in rows:
+        symbol = str(row.get("ticker", "")).upper().strip()
+        if not symbol:
+            continue
+        if symbol not in dedup:
+            dedup[symbol] = row
+
+    def score(row: dict) -> tuple[int, int]:
+        ticker = str(row.get("ticker", "")).upper()
+        name = str(row.get("name", "")).upper()
+        type_ = str(row.get("type", "")).lower()
+
+        s = 0
+        if ticker == q:
+            s += 1000
+        if ticker.startswith(q):
+            s += 300
+        if q in ticker:
+            s += 120
+        if q in name:
+            s += 100
+        if type_ in {"stock", "equity", "etf"}:
+            s += 30
+
+        # Prefer closer-length symbols for user intent (AMZN over AM when query=AMZN)
+        length_penalty = abs(len(ticker) - len(q))
+        return (s, -length_penalty)
+
+    ranked = sorted(dedup.values(), key=score, reverse=True)
+    return ranked[:limit]
+
+
 async def search_tickers(query: str, limit: int = 10) -> list[dict]:
     query = query.strip()
     if not query:
         return []
 
-    rows = await asyncio.to_thread(_search_sync, query, max(1, limit))
-    if rows:
-        return rows
-    rows = await asyncio.to_thread(_alpha_vantage_symbol_search_sync, query, max(1, limit))
-    if rows:
-        return rows
+    max_limit = max(1, limit)
+    yahoo_rows = await asyncio.to_thread(_search_sync, query, max_limit * 2)
+    av_rows = await asyncio.to_thread(_alpha_vantage_symbol_search_sync, query, max_limit * 2)
+    merged = _rank_search_rows(query, [*yahoo_rows, *av_rows], max_limit)
+    if merged:
+        return merged
 
     manual = _manual_symbol_candidate(query)
     if manual:

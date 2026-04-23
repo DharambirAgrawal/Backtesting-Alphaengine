@@ -14,47 +14,41 @@ class Settings(BaseSettings):
     # Auth
     ADMIN_EMAIL: str | None = None
     ADMIN_PASSWORD: str | None = None
-    JWT_SECRET: str = "change-me-with-a-long-random-secret-at-least-32-chars"
+    JWT_SECRET: str | None = None
     JWT_EXPIRE_DAYS: int = 7
 
     # Database
-    DATABASE_URL: str = (
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/alphaengine"
-    )
+    DATABASE_URL: str | None = None
 
     # Supabase
     SUPABASE_URL: str | None = None
     SUPABASE_SERVICE_KEY: str | None = None
     SUPABASE_BUCKET: str = "alphaengine-models"
 
-    # AI
+    # LLM
     GEMINI_API_KEY: str | None = None
+    AGENT_DECISION_MODE: str = "hybrid"  # accepted: rules | hybrid | gemini
 
-    # Market data (real providers only when synthetic is off — see IDEA.md / README)
+    # Market data
     ALPHA_VANTAGE_KEY: str | None = None
     NEWS_API_KEY: str | None = None
     STOOQ_API_KEY: str | None = None
-    # Prefer Stooq CSV before Yahoo when Yahoo blocks your IP (Codespaces / many hosts).
     STOOQ_FIRST: bool = True
-    # When False (default), never invent OHLCV or hash-based prices — APIs must succeed.
     ALLOW_SYNTHETIC_MARKET_DATA: bool = False
-    # When False (default), do not inject fake news headlines if NewsAPI fails or is missing.
     ALLOW_SYNTHETIC_NEWS: bool = False
-    # When False (default), ticker search returns empty if Yahoo search fails (no static demo list).
     ALLOW_SEARCH_FALLBACK_TICKERS: bool = False
 
-    # Agent scheduler: one cron per trading week (replace legacy 3× daily demo slots).
-    # When disabled, only manual POST /agent/{id}/run triggers runs.
+    # Scheduler
     AGENT_CRON_ENABLED: bool = True
     AGENT_CRON_DAY_OF_WEEK: str = "mon-fri"
     AGENT_CRON_HOUR: int = 9
     AGENT_CRON_MINUTE: int = 35
+    AGENT_CRON_HOURS: str | None = "9,12,15"
 
     # App
-    APP_SECRET: str = "dev-secret"
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str = "production"
     MARKET_TIMEZONE: str = "America/New_York"
-    CORS_ORIGINS: str = "http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:3000,https://alphaenginestock.vercel.app"
     KEEP_ALIVE_URL: str = "http://127.0.0.1:8000/health"
     RENDER_EXTERNAL_URL: str | None = None
     AUTO_CREATE_TABLES: bool = True
@@ -66,6 +60,8 @@ class Settings(BaseSettings):
     @property
     def database_url_async(self) -> str:
         """Normalize common Render/Postgres URLs for SQLAlchemy async engine."""
+        if not self.DATABASE_URL:
+            raise RuntimeError("DATABASE_URL is required in environment.")
         url = self.DATABASE_URL.strip()
         if url.startswith("postgresql+asyncpg://"):
             return url
@@ -85,6 +81,29 @@ class Settings(BaseSettings):
             base = self.RENDER_EXTERNAL_URL.rstrip("/")
             return f"{base}/health"
         return self.KEEP_ALIVE_URL
+
+    @property
+    def jwt_secret(self) -> str:
+        if not self.JWT_SECRET or len(self.JWT_SECRET.strip()) < 32:
+            raise RuntimeError("JWT_SECRET must be set and at least 32 characters.")
+        return self.JWT_SECRET.strip()
+
+    @property
+    def agent_cron_hours(self) -> list[int]:
+        if not self.AGENT_CRON_HOURS:
+            return [self.AGENT_CRON_HOUR]
+        values: list[int] = []
+        for raw in self.AGENT_CRON_HOURS.split(","):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                hour = int(raw)
+            except ValueError:
+                continue
+            if 0 <= hour <= 23:
+                values.append(hour)
+        return sorted(set(values)) or [self.AGENT_CRON_HOUR]
 
 
 @lru_cache

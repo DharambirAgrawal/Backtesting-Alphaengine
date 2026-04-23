@@ -4,9 +4,9 @@ import useSWR from "swr";
 import { getPortfolios, getPortfolio } from "@/lib/api";
 import type { Portfolio } from "@/lib/types";
 
-export function usePortfolios() {
+export function usePortfolios(enabled = true) {
   const { data, error, isLoading, mutate } = useSWR<Portfolio[]>(
-    "portfolios",
+    enabled ? "portfolios" : null,
     getPortfolios,
     {
       revalidateOnFocus: false,

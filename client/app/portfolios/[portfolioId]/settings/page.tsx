@@ -55,6 +55,7 @@ export default function PortfolioSettingsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isAddingTicker, setIsAddingTicker] = useState(false);
   const [removingTicker, setRemovingTicker] = useState<string | null>(null);
+  const [localTickers, setLocalTickers] = useState<string[]>([]);
 
   useEffect(() => {
     if (!portfolio) {
@@ -64,6 +65,7 @@ export default function PortfolioSettingsPage() {
     setName(portfolio.name);
     setDescription(portfolio.description || "");
     setIsActive(portfolio.is_active);
+    setLocalTickers(portfolio.tickers || []);
   }, [portfolio]);
 
   const handleSave = async () => {
@@ -75,7 +77,7 @@ export default function PortfolioSettingsPage() {
         is_active: isActive,
       });
       toast.success("Settings saved");
-      refresh();
+      await refresh();
     } catch (error) {
       toast.error("Failed to save settings", {
         description:
@@ -89,10 +91,14 @@ export default function PortfolioSettingsPage() {
   const handleAddTicker = async (ticker: TickerSearchResult) => {
     setIsAddingTicker(true);
     try {
+      setLocalTickers((prev) =>
+        prev.includes(ticker.ticker) ? prev : [...prev, ticker.ticker]
+      );
       await addTickers(portfolioId, [ticker.ticker]);
-      toast.success(`Added ${ticker.ticker}`);
-      refresh();
+      toast.success(`Added ${ticker.ticker} (${ticker.name})`);
+      await refresh();
     } catch (error) {
+      setLocalTickers((prev) => prev.filter((t) => t !== ticker.ticker));
       toast.error(`Failed to add ${ticker.ticker}`, {
         description:
           error instanceof Error ? error.message : "Please try again.",
@@ -105,10 +111,12 @@ export default function PortfolioSettingsPage() {
   const handleRemoveTicker = async (ticker: string) => {
     setRemovingTicker(ticker);
     try {
+      setLocalTickers((items) => items.filter((t) => t !== ticker));
       await removeTicker(portfolioId, ticker);
       toast.success(`Removed ${ticker}`);
-      refresh();
+      await refresh();
     } catch (error) {
+      setLocalTickers(portfolio?.tickers ?? []);
       toast.error(`Failed to remove ${ticker}`, {
         description:
           error instanceof Error ? error.message : "Please close the position first.",
@@ -222,7 +230,7 @@ export default function PortfolioSettingsPage() {
           <CardContent className="space-y-4">
             <TickerSearch
               onSelect={handleAddTicker}
-              selectedTickers={portfolio?.tickers ?? []}
+              selectedTickers={localTickers}
               placeholder="Add a ticker..."
             />
 
@@ -233,9 +241,9 @@ export default function PortfolioSettingsPage() {
               </p>
             )}
 
-            {portfolio?.tickers && portfolio.tickers.length > 0 && (
+            {localTickers.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {portfolio.tickers.map((ticker) => (
+                {localTickers.map((ticker) => (
                   <Badge
                     key={ticker}
                     variant="outline"
