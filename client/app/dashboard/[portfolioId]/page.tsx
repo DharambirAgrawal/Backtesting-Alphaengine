@@ -34,8 +34,10 @@ export default function PortfolioDashboardPage() {
       await run();
       toast.success("Agent run started", {
         description: "The agent is analyzing the market and making decisions.",
+      });
       // We no longer need setTimeout; the agent run hook has SWR polling.
       // SWR will pick up the running state and the completed state automatically.
+    } catch {
       toast.error("Failed to start agent run");
     }
   };
