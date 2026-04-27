@@ -40,9 +40,22 @@ def _build_reasoning(
     )
 
 
+
+def _confidence_based_amount(total_value: float, confidence: float) -> float:
+    if confidence >= 0.7:
+        pct = 0.045
+    elif confidence >= 0.55:
+        pct = 0.025
+    else:
+        pct = 0.015
+    return max(0.0, total_value * pct)
+
+
 def _rule_decision(
     *,
     cash: float,
+    total_value: float,
+    confidence: float,
     owned_shares: float,
     direction: dict,
     technical: dict,
@@ -60,7 +73,8 @@ def _rule_decision(
         and cash >= 50
     ):
         action = "BUY"
-        amount_usd = max(50.0, min(cash * 0.08, 500.0))
+        confidence_amount = _confidence_based_amount(total_value, confidence)
+        amount_usd = max(50.0, min(confidence_amount, cash * 0.10))
     elif (
         owned_shares > 0
         and (
@@ -95,6 +109,7 @@ async def _llm_hybrid_decision(
     *,
     ticker: str,
     cash: float,
+    total_value: float,
     owned_shares: float,
     prediction: dict,
     direction: dict,
@@ -119,6 +134,7 @@ action (BUY|SELL|HOLD), amount_usd (number|null), sell_fraction (number|null), p
 
 Ticker: {ticker}
 Cash available: {cash}
+Current portfolio total value: {total_value}
 Owned shares: {owned_shares}
 Prediction: {json.dumps(prediction)}
 Direction: {json.dumps(direction)}
@@ -126,10 +142,16 @@ Technical: {json.dumps(technical)}
 Sentiment: {sentiment}
 Baseline rule decision: {json.dumps(baseline)}
 
+Position sizing guidance:
+- High confidence (>70%) = allocate 4-5% of total portfolio value.
+- Medium confidence (55-70%) = 2-3%.
+- Low confidence (<55%) = 1-2%.
+- Never put more than 10% in one position.
+
 Hard limits:
 - BUY only if cash >= 50.
 - SELL only if owned_shares > 0.
-- amount_usd must be between 50 and 1000 when BUY.
+- amount_usd should follow the confidence-based sizing guidance above and stay within available cash.
 - sell_fraction between 0.1 and 1.0 when SELL.
 - preferred_minutes between 20 and 240.
 """.strip()
@@ -179,6 +201,7 @@ def _merge_hybrid_decision(
     baseline: dict,
     llm: dict | None,
     cash: float,
+    total_value: float,
     owned_shares: float,
 ) -> dict:
     final = dict(baseline)
@@ -203,7 +226,7 @@ def _merge_hybrid_decision(
                 if isinstance(llm_amount, (int, float))
                 else float(baseline_amount or 50.0)
             )
-            amount_usd = max(50.0, min(amount_val, min(cash, 1000.0)))
+            amount_usd = max(50.0, min(amount_val, cash * 0.10, total_value * 0.10))
 
     elif action == "SELL":
         if owned_shares <= 0:
@@ -350,6 +373,8 @@ async def run_agent(
 
                 baseline = _rule_decision(
                     cash=cash,
+                    total_value=float(portfolio_out.total_value),
+                    confidence=float(prediction.get("confidence", 0.5)),
                     owned_shares=owned_shares,
                     direction=direction,
                     technical=technical,
@@ -358,6 +383,7 @@ async def run_agent(
                 llm_pick = await _llm_hybrid_decision(
                     ticker=ticker,
                     cash=cash,
+                    total_value=float(portfolio_out.total_value),
                     owned_shares=owned_shares,
                     prediction=prediction,
                     direction=direction,
@@ -369,6 +395,7 @@ async def run_agent(
                     baseline=baseline,
                     llm=llm_pick,
                     cash=cash,
+                    total_value=float(portfolio_out.total_value),
                     owned_shares=owned_shares,
                 )
                 action = decision["action"]

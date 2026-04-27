@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import math
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import desc, select
@@ -38,6 +40,34 @@ async def trigger_agent_run(
     db: AsyncSession = Depends(get_db),
 ):
     portfolio = await get_portfolio_or_404(portfolio_id, db)
+
+    running_stmt = select(AgentRun.id).where(
+        AgentRun.portfolio_id == portfolio.id,
+        AgentRun.status == "running",
+    )
+    running_run_id = await db.scalar(running_stmt)
+    if running_run_id:
+        raise HTTPException(status_code=409, detail="A run is already in progress")
+
+    completed_stmt = (
+        select(AgentRun.completed_at)
+        .where(
+            AgentRun.portfolio_id == portfolio.id,
+            AgentRun.completed_at.is_not(None),
+        )
+        .order_by(desc(AgentRun.completed_at))
+        .limit(1)
+    )
+    last_completed_at = await db.scalar(completed_stmt)
+    if last_completed_at:
+        now = datetime.now(timezone.utc)
+        elapsed_minutes = (now - last_completed_at).total_seconds() / 60.0
+        if elapsed_minutes < 10:
+            wait_minutes = max(1, math.ceil(10 - elapsed_minutes))
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {wait_minutes} minutes before triggering another run",
+            )
 
     run = AgentRun(
         portfolio_id=portfolio.id,

@@ -62,6 +62,15 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      localStorage.clear();
+      document.cookie = "token=; max-age=0; path=/";
+      document.cookie = "role=; max-age=0; path=/";
+      document.cookie = "email=; max-age=0; path=/";
+      window.location.href = "/login";
+      return undefined as T;
+    }
+
     // 503 = Render cold-start; signal the connection banner
     if (response.status === 503 || response.status === 0) {
       dispatchBackendDown();
