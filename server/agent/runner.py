@@ -348,6 +348,7 @@ async def run_agent(
 
             trades_made = 0
             summary_lines: list[str] = []
+            per_ticker_decisions: list[dict] = []
             confidence_values: list[float] = []
             bearish_signals = 0
             bullish_signals = 0
@@ -363,6 +364,14 @@ async def run_agent(
                     status = await _with_retries(get_portfolio_status_tool, db, portfolio_id)
                 except Exception as exc:
                     summary_lines.append(f"{ticker}: skipped due to tool error ({exc}).")
+                    per_ticker_decisions.append(
+                        {
+                            "ticker": ticker,
+                            "action": "HOLD",
+                            "rationale": f"Skipped due to tool error: {exc}",
+                            "tools_called": {},
+                        }
+                    )
                     tool_errors += 1
                     continue
 
@@ -427,6 +436,23 @@ async def run_agent(
                     if llm_rationale:
                         reasoning = f"{reasoning} LLM rationale: {llm_rationale}"
 
+                tools_called = {
+                    "lstm_prediction": prediction,
+                    "direction": direction,
+                    "technical_signals": technical,
+                    "sentiment_score": sentiment,
+                    "decision_source": decision.get("source", "rules"),
+                    "decision_mode": settings.AGENT_DECISION_MODE,
+                }
+                per_ticker_decisions.append(
+                    {
+                        "ticker": ticker,
+                        "action": action,
+                        "rationale": reasoning,
+                        "tools_called": tools_called,
+                    }
+                )
+
                 horizon_days = max(1, int(prediction.get("horizon_days", 3)))
                 prediction_date = _market_today()
                 await record_prediction(
@@ -451,14 +477,7 @@ async def run_agent(
                             shares=sell_shares,
                             run_id=str(run.id),
                             llm_reasoning=reasoning,
-                            tools_called={
-                                "lstm_prediction": prediction,
-                                "direction": direction,
-                                "technical_signals": technical,
-                                "sentiment_score": sentiment,
-                                "decision_source": decision.get("source", "rules"),
-                                "decision_mode": settings.AGENT_DECISION_MODE,
-                            },
+                            tools_called=tools_called,
                         )
                     except Exception as exc:
                         summary_lines.append(f"{ticker}: trade execution failed ({exc}).")
@@ -474,6 +493,7 @@ async def run_agent(
             run.trades_made = trades_made
             run.total_pl = refreshed_portfolio.profit_loss
             run.summary = "\n".join(summary_lines[-10:])
+            run.per_ticker_decisions = per_ticker_decisions
             run.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
@@ -510,6 +530,7 @@ async def run_agent(
         except Exception as exc:
             run.status = "failed"
             run.summary = f"Run failed: {exc}"
+            run.per_ticker_decisions = run.per_ticker_decisions or []
             run.completed_at = datetime.now(timezone.utc)
             await db.commit()
             return {

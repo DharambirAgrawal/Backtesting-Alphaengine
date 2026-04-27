@@ -1,14 +1,15 @@
 "use client";
 
 import useSWR from "swr";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback } from "react";
 import {
+  getAgentRun,
   triggerAgentRun,
   getAgentRuns,
   pauseAgent,
   resumeAgent,
 } from "@/lib/api";
-import type { AgentRun } from "@/lib/types";
+import type { AgentRun, AgentRunDetail } from "@/lib/types";
 
 export function useAgentRun(portfolioId: string | null) {
   const [isTriggering, setIsTriggering] = useState(false);
@@ -81,6 +82,26 @@ export function useAgentRun(portfolioId: string | null) {
     run,
     pause,
     resume,
+    refresh: mutate,
+  };
+}
+
+export function useAgentRunDetail(
+  portfolioId: string | null,
+  runId: string | null
+) {
+  const { data, error, isLoading, mutate } = useSWR<AgentRunDetail>(
+    portfolioId && runId ? `agent-run-${portfolioId}-${runId}` : null,
+    () => getAgentRun(portfolioId as string, runId as string),
+    {
+      revalidateOnFocus: false,
+    }
+  );
+
+  return {
+    run: data ?? null,
+    error,
+    isLoading,
     refresh: mutate,
   };
 }

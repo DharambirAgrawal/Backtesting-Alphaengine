@@ -4,6 +4,7 @@ import {
 import { dispatchBackendDown, dispatchBackendUp } from "@/components/layout/connection-banner";
 import type {
   AgentRun,
+  AgentRunDetail,
   ChartData,
   DashboardData,
   MessageResponse,
@@ -256,6 +257,10 @@ export async function triggerAgentRun(portfolioId: string) {
 
 export async function getAgentRuns(portfolioId: string) {
   return request<AgentRun[]>(`/agent/${portfolioId}/runs`);
+}
+
+export async function getAgentRun(portfolioId: string, runId: string) {
+  return request<AgentRunDetail>(`/agent/${portfolioId}/runs/${runId}`);
 }
 
 export async function pauseAgent(portfolioId: string) {

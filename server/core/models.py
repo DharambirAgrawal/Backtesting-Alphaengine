@@ -222,6 +222,7 @@ class AgentRun(Base):
     run_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     session: Mapped[str | None] = mapped_column(String(20), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    per_ticker_decisions: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
     trades_made: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_pl: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     started_at: Mapped[datetime] = mapped_column(

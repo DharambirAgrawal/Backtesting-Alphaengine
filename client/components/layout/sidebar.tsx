@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   ArrowRightLeft,
   Brain,
+  History,
   Settings,
   Users,
   Layers3,
@@ -59,6 +60,12 @@ export function Sidebar({ portfolioId }: SidebarProps) {
             label: "Trades",
             href: `/dashboard/${portfolioId}/trades`,
             icon: ArrowRightLeft,
+            exact: false,
+          },
+          {
+            label: "Runs",
+            href: `/dashboard/${portfolioId}/runs`,
+            icon: History,
             exact: false,
           },
           {

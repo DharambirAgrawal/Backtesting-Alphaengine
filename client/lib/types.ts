@@ -65,7 +65,21 @@ export interface AgentRun {
   total_pl: number;
   started_at: string;
   completed_at: string | null;
-  status: "running" | "done" | "failed";
+  status: "running" | "done" | "failed" | "skipped";
+}
+
+export interface AgentRunEvaluation {
+  ticker: string;
+  action: TradeAction;
+  llm_reasoning: string;
+  tools_called: Record<string, unknown>;
+  transaction: Transaction | null;
+  summary_line: string | null;
+}
+
+export interface AgentRunDetail extends AgentRun {
+  evaluations: AgentRunEvaluation[];
+  held_all_positions: boolean;
 }
 
 export interface PerformanceStats {

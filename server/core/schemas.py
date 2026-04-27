@@ -119,7 +119,21 @@ class AgentRunOut(APIModel):
     total_pl: float
     started_at: datetime
     completed_at: datetime | None
-    status: Literal["running", "done", "failed"]
+    status: Literal["running", "done", "failed", "skipped"]
+
+
+class AgentRunTickerDetailOut(APIModel):
+    ticker: str
+    action: Literal["BUY", "SELL", "HOLD"] | str
+    llm_reasoning: str
+    tools_called: dict[str, Any]
+    transaction: TransactionOut | None = None
+    summary_line: str | None = None
+
+
+class AgentRunDetailOut(AgentRunOut):
+    evaluations: list[AgentRunTickerDetailOut]
+    held_all_positions: bool = False
 
 
 class PerformanceStatsOut(APIModel):
