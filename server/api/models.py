@@ -17,7 +17,7 @@ from core.schemas import (
     ModelOverviewSummaryOut,
     ModelPortfolioReferenceOut,
 )
-from ml.evaluator import get_accuracy_series
+from ml.evaluator import get_accuracy_series, get_latest_forward_accuracy
 from ml.trainer import train_many_tickers, train_ticker_models
 
 router = APIRouter(tags=["models"])
@@ -72,12 +72,20 @@ async def list_models(
         model_type = row.model_type.lower().strip()
         if model_type not in {"lstm", "xgboost"}:
             continue
+        accuracy = as_float(row.accuracy)
+        forward_accuracy = None
+        if model_type == "lstm":
+            forward_accuracy = await get_latest_forward_accuracy(
+                db,
+                ticker=row.ticker,
+                model_type=model_type,
+            )
         output.append(
             ModelOut(
                 id=row.id,
                 ticker=row.ticker,
                 model_type=model_type,
-                accuracy=as_float(row.accuracy),
+                accuracy=forward_accuracy if forward_accuracy is not None else accuracy,
                 training_rows=row.training_rows or 0,
                 trained_at=row.trained_at,
                 is_active=row.is_active,

@@ -273,6 +273,7 @@ class PredictionHistory(Base):
     predicted_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     actual_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     prediction_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    prediction_for_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

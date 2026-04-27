@@ -34,6 +34,7 @@ async def record_prediction(
     predicted_price: float,
     actual_price: float | None,
     prediction_date: date | None = None,
+    prediction_for_date: date | None = None,
 ) -> PredictionHistory:
     row = PredictionHistory(
         ticker=ticker.upper(),
@@ -41,6 +42,7 @@ async def record_prediction(
         predicted_price=predicted_price,
         actual_price=actual_price,
         prediction_date=prediction_date or datetime.now(timezone.utc).date(),
+        prediction_for_date=prediction_for_date,
     )
     db.add(row)
     await db.commit()
@@ -58,7 +60,11 @@ async def get_accuracy_series(
     if model_type:
         stmt = stmt.where(PredictionHistory.model_type == model_type)
 
-    stmt = stmt.order_by(desc(PredictionHistory.prediction_date), desc(PredictionHistory.recorded_at)).limit(limit)
+    stmt = stmt.order_by(
+        desc(PredictionHistory.prediction_for_date),
+        desc(PredictionHistory.prediction_date),
+        desc(PredictionHistory.recorded_at),
+    ).limit(limit)
     rows = list(reversed((await db.scalars(stmt)).all()))
 
     dates: list[str] = []
@@ -71,7 +77,8 @@ async def get_accuracy_series(
         if predicted_value is None or actual_value is None or actual_value == 0:
             continue
 
-        dt = row.prediction_date.isoformat() if row.prediction_date else row.recorded_at.date().isoformat()
+        resolved_date = row.prediction_for_date or row.prediction_date or row.recorded_at.date()
+        dt = resolved_date.isoformat()
         dates.append(dt)
         predicted.append(predicted_value)
         actual.append(actual_value)
@@ -98,3 +105,16 @@ async def should_trigger_retrain(
     if len(rolling) < 7:
         return False
     return float(rolling[-1]) < threshold
+
+
+async def get_latest_forward_accuracy(
+    db: AsyncSession,
+    ticker: str,
+    model_type: str | None = None,
+    limit: int = 30,
+) -> float | None:
+    series = await get_accuracy_series(db, ticker=ticker, model_type=model_type, limit=limit)
+    rolling = series.get("rolling_accuracy") or []
+    if rolling:
+        return float(rolling[-1])
+    return None

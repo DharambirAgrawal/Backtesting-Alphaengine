@@ -4,7 +4,8 @@ import asyncio
 import json
 import re
 from statistics import median
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
@@ -20,7 +21,6 @@ from api.utils import build_holdings_view, build_portfolio_out, get_portfolio_ti
 from core.config import settings
 from core.database import SessionLocal
 from core.models import AgentRun, Portfolio
-from data.market_data import get_current_price
 from ml.evaluator import record_prediction
 
 
@@ -39,6 +39,9 @@ def _build_reasoning(
         f"MACD={technical.get('macd')}, sentiment={sentiment}. Action={action}."
     )
 
+
+def _market_today() -> date:
+    return datetime.now(ZoneInfo(settings.MARKET_TIMEZONE)).date()
 
 
 def _confidence_based_amount(total_value: float, confidence: float) -> float:
@@ -358,7 +361,6 @@ async def run_agent(
                     technical = await _with_retries(get_technical_signals_tool, ticker)
                     sentiment = await _with_retries(get_sentiment_score_tool, ticker)
                     status = await _with_retries(get_portfolio_status_tool, db, portfolio_id)
-                    current_price = await _with_retries(get_current_price, ticker)
                 except Exception as exc:
                     summary_lines.append(f"{ticker}: skipped due to tool error ({exc}).")
                     tool_errors += 1
@@ -425,12 +427,16 @@ async def run_agent(
                     if llm_rationale:
                         reasoning = f"{reasoning} LLM rationale: {llm_rationale}"
 
+                horizon_days = max(1, int(prediction.get("horizon_days", 3)))
+                prediction_date = _market_today()
                 await record_prediction(
                     db=db,
                     ticker=ticker,
                     model_type="lstm",
                     predicted_price=float(prediction.get("predicted_price", 0.0)),
-                    actual_price=float(current_price),
+                    actual_price=None,
+                    prediction_date=prediction_date,
+                    prediction_for_date=prediction_date + timedelta(days=horizon_days),
                 )
 
                 if action in {"BUY", "SELL"}:

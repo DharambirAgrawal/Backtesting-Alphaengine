@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from functools import lru_cache
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
+import pandas as pd
+import yfinance as yf
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -16,7 +18,7 @@ from sqlalchemy import select
 from agent.runner import run_agent
 from core.config import settings
 from core.database import SessionLocal
-from core.models import Portfolio, PortfolioTicker
+from core.models import Portfolio, PortfolioTicker, PredictionHistory
 from ml.trainer import train_many_tickers
 
 scheduler = AsyncIOScheduler(timezone=ZoneInfo(settings.MARKET_TIMEZONE))
@@ -104,6 +106,83 @@ async def retrain_all_models_job() -> None:
             await train_many_tickers(db, tickers)
 
 
+def _fetch_close_price_from_yfinance_sync(ticker: str, target_date: date) -> float | None:
+    try:
+        history = yf.Ticker(ticker.upper()).history(
+            start=target_date.isoformat(),
+            end=(target_date + timedelta(days=7)).isoformat(),
+            interval="1d",
+            auto_adjust=False,
+        )
+    except Exception:
+        return None
+
+    if history is None or history.empty:
+        return None
+
+    if isinstance(history.columns, pd.MultiIndex):
+        history.columns = [str(col[0]) for col in history.columns]
+
+    close_column = "Close" if "Close" in history.columns else "close" if "close" in history.columns else None
+    if not close_column:
+        return None
+
+    for idx, row in history.sort_index().iterrows():
+        ts = pd.Timestamp(idx)
+        if ts.date() < target_date:
+            continue
+        close_value = row.get(close_column)
+        if pd.notna(close_value):
+            return round(float(close_value), 4)
+
+    return None
+
+
+async def resolve_prediction_history_actuals_job() -> None:
+    today_local = _to_market_tz(datetime.now(timezone.utc)).date()
+
+    async with SessionLocal() as db:
+        stmt = (
+            select(PredictionHistory)
+            .where(PredictionHistory.actual_price.is_(None))
+            .where(PredictionHistory.prediction_for_date.is_not(None))
+            .where(PredictionHistory.prediction_for_date <= today_local)
+            .order_by(
+                PredictionHistory.prediction_for_date.asc(),
+                PredictionHistory.recorded_at.asc(),
+            )
+        )
+        rows = (await db.scalars(stmt)).all()
+        if not rows:
+            return
+
+        resolved_closes: dict[tuple[str, date], float | None] = {}
+        updated = 0
+
+        for row in rows:
+            due_date = row.prediction_for_date
+            if due_date is None:
+                continue
+
+            key = (row.ticker.upper(), due_date)
+            if key not in resolved_closes:
+                resolved_closes[key] = await asyncio.to_thread(
+                    _fetch_close_price_from_yfinance_sync,
+                    row.ticker,
+                    due_date,
+                )
+
+            actual_close = resolved_closes[key]
+            if actual_close is None:
+                continue
+
+            row.actual_price = actual_close
+            updated += 1
+
+        if updated:
+            await db.commit()
+
+
 async def keep_alive_ping() -> None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -173,6 +252,18 @@ def start_scheduler() -> None:
         retrain_all_models_job,
         trigger=CronTrigger(day_of_week="sun", hour=2, minute=0, timezone="UTC"),
         id="retrain-weekly",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        resolve_prediction_history_actuals_job,
+        trigger=CronTrigger(
+            day_of_week="mon-fri",
+            hour=18,
+            minute=0,
+            timezone=ZoneInfo("America/New_York"),
+        ),
+        id="resolve-predictions-daily",
         replace_existing=True,
     )
 
