@@ -110,6 +110,7 @@ async def execute_trade(
     portfolio_id: str,
     ticker: str,
     action: str,
+    run_id: str | None = None,
     amount_usd: float | None = None,
     shares: float | str | None = None,
     llm_reasoning: str | None = None,
@@ -145,6 +146,18 @@ async def execute_trade(
 
     executed_shares = 0.0
     trade_value = 0.0
+    idempotency_key = f"{run_id}:{symbol}:{action}" if run_id else None
+
+    if idempotency_key:
+        existing_tx = await db.scalar(
+            select(Transaction).where(Transaction.idempotency_key == idempotency_key)
+        )
+        if existing_tx:
+            portfolio_out = await build_portfolio_out(db, portfolio)
+            return {
+                "transaction": transaction_to_out(existing_tx).model_dump(),
+                "portfolio": portfolio_out.model_dump(),
+            }
 
     if action == "BUY":
         cash_available = as_float(portfolio.current_cash)
@@ -200,6 +213,7 @@ async def execute_trade(
         shares=round(executed_shares, 6),
         price_at_trade=round(price, 4),
         total_value=round(trade_value, 2),
+        idempotency_key=idempotency_key,
         llm_reasoning=llm_reasoning or "No detailed reasoning provided.",
         tools_called=tools_called or {},
         executed_at=datetime.now(timezone.utc),
@@ -244,6 +258,7 @@ async def execute_tool_call(
             portfolio_id=portfolio_id,
             ticker=str(arguments.get("ticker", "")),
             action=str(arguments.get("action", "HOLD")),
+            run_id=arguments.get("run_id"),
             amount_usd=arguments.get("amount_usd"),
             shares=arguments.get("shares"),
         )

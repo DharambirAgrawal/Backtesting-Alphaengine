@@ -148,7 +148,7 @@ export default function PortfolioDashboardPage() {
               value={formatPct(dashboard.performance.win_rate * 100, {
                 showSign: false,
               })}
-              subValue={`${dashboard.performance.profitable_trades} of ${dashboard.performance.total_trades} trades`}
+              subValue={`${dashboard.performance.profitable_trades} of ${dashboard.performance.total_trades} sells`}
               trend={dashboard.performance.win_rate >= 0.5 ? "up" : "down"}
             />
           </div>

@@ -214,11 +214,9 @@ async def build_performance_stats(
             realized_results.append({"ticker": ticker, "gain_pct": gain_pct})
             pos["shares"] -= qty
 
-    total_trades = len([tx for tx in transactions if tx.action in {"BUY", "SELL"}])
+    sell_trades_count = len(realized_results)
     profitable_trades = len([item for item in realized_results if item["gain_pct"] > 0])
-    win_rate = (
-        profitable_trades / len(realized_results) if realized_results else 0.0
-    )
+    win_rate = profitable_trades / sell_trades_count if sell_trades_count else 0.0
 
     if realized_results:
         best = max(realized_results, key=lambda item: item["gain_pct"])
@@ -266,7 +264,7 @@ async def build_performance_stats(
         sharpe_ratio=round(sharpe_ratio, 4),
         max_drawdown_pct=round(max_drawdown_pct, 4),
         win_rate=round(win_rate, 4),
-        total_trades=total_trades,
+        total_trades=sell_trades_count,
         profitable_trades=profitable_trades,
         best_trade=best_trade,
         worst_trade=worst_trade,

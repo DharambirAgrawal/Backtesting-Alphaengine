@@ -162,6 +162,7 @@ class Transaction(Base):
     shares: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
     price_at_trade: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
     total_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     llm_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     tools_called: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     executed_at: Mapped[datetime] = mapped_column(

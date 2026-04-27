@@ -6,7 +6,7 @@ import re
 from statistics import median
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from agent.tools import (
     classify_direction_tool,
@@ -294,10 +294,16 @@ async def run_agent(
     resolved_run_id = await _load_or_create_run(portfolio_id, session, run_type, run_id)
 
     async with SessionLocal() as db:
+        lock_key = abs(hash(str(portfolio_id))) % (2**31)
+        got_lock = await db.scalar(select(func.pg_try_advisory_lock(lock_key)))
+        if not got_lock:
+            return {"status": "skipped", "reason": "run already in progress"}
+
         run = await db.get(AgentRun, resolved_run_id)
         portfolio = await db.get(Portfolio, portfolio_id)
 
         if not run or not portfolio:
+            await db.execute(select(func.pg_advisory_unlock(lock_key)))
             return {"status": "failed", "error": "Run or portfolio not found"}
 
         try:
@@ -410,6 +416,7 @@ async def run_agent(
                             action=action,
                             amount_usd=amount_usd,
                             shares=sell_shares,
+                            run_id=str(run.id),
                             llm_reasoning=reasoning,
                             tools_called={
                                 "lstm_prediction": prediction,
@@ -477,3 +484,5 @@ async def run_agent(
                 "run_id": str(run.id),
                 "error": str(exc),
             }
+        finally:
+            await db.execute(select(func.pg_advisory_unlock(lock_key)))
