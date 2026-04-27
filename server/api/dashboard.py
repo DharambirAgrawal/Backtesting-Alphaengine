@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,10 +39,11 @@ def _period_to_days(period: str) -> int | None:
 @router.get("/dashboard/{portfolio_id}", response_model=DashboardOut)
 async def get_dashboard(
     portfolio_id: str,
+    request: Request,
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
 
     holdings, holdings_value = await build_holdings_view(db, portfolio.id)
     tickers = await get_portfolio_tickers(db, portfolio.id)
@@ -83,11 +84,12 @@ async def get_dashboard(
 @router.get("/dashboard/{portfolio_id}/chart", response_model=ChartDataOut)
 async def get_dashboard_chart(
     portfolio_id: str,
+    request: Request,
     period: str = Query(default="1M"),
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
     days = _period_to_days(period)
 
     stmt = select(PortfolioSnapshot).where(PortfolioSnapshot.portfolio_id == portfolio.id)
@@ -118,8 +120,9 @@ async def get_dashboard_chart(
 @router.get("/dashboard/{portfolio_id}/performance", response_model=PerformanceStatsOut)
 async def get_dashboard_performance(
     portfolio_id: str,
+    request: Request,
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _portfolio = await get_portfolio_or_404(portfolio_id, db)
+    _portfolio = await get_portfolio_or_404(portfolio_id, request, db)
     return await build_performance_stats(db, portfolio_id)

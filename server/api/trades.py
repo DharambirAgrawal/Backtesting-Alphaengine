@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,7 @@ def _parse_datetime(value: str | None) -> datetime | None:
 )
 async def list_transactions(
     portfolio_id: str,
+    request: Request,
     ticker: str | None = None,
     action: str | None = None,
     limit: int = Query(default=20, ge=1, le=200),
@@ -45,7 +46,7 @@ async def list_transactions(
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
 
     stmt = select(Transaction).where(Transaction.portfolio_id == portfolio.id)
 
@@ -93,10 +94,11 @@ async def list_transactions(
 async def get_transaction(
     portfolio_id: str,
     tx_id: str,
+    request: Request,
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
 
     stmt = select(Transaction).where(
         Transaction.id == tx_id,

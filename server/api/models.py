@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,12 +33,13 @@ def _normalize_model_type(value: str) -> str | None:
 
 async def _get_scoped_tickers(
     db: AsyncSession,
+    request: Request,
     portfolio_id: str | None = None,
 ) -> list[str]:
     stmt = select(PortfolioTicker.ticker).distinct()
 
     if portfolio_id:
-        portfolio = await get_portfolio_or_404(portfolio_id, db)
+        portfolio = await get_portfolio_or_404(portfolio_id, request, db)
         stmt = stmt.where(PortfolioTicker.portfolio_id == portfolio.id)
 
     tickers = [str(item).upper() for item in (await db.scalars(stmt)).all()]
@@ -47,6 +48,7 @@ async def _get_scoped_tickers(
 
 @router.get("/models", response_model=list[ModelOut])
 async def list_models(
+    request: Request,
     portfolio_id: str | None = Query(default=None),
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -54,7 +56,7 @@ async def list_models(
     stmt = select(ModelRegistry)
 
     if portfolio_id:
-        tickers = await _get_scoped_tickers(db, portfolio_id)
+        tickers = await _get_scoped_tickers(db, request, portfolio_id)
         if not tickers:
             return []
         stmt = stmt.where(ModelRegistry.ticker.in_(tickers))
@@ -86,6 +88,7 @@ async def list_models(
 
 @router.get("/models/overview", response_model=ModelOverviewOut)
 async def get_models_overview(
+    request: Request,
     portfolio_id: str | None = Query(default=None),
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -102,7 +105,7 @@ async def get_models_overview(
     )
 
     if portfolio_id:
-        portfolio = await get_portfolio_or_404(portfolio_id, db)
+        portfolio = await get_portfolio_or_404(portfolio_id, request, db)
         ticker_stmt = ticker_stmt.where(PortfolioTicker.portfolio_id == portfolio.id)
 
     ticker_rows = (await db.execute(ticker_stmt)).all()
@@ -199,6 +202,7 @@ async def get_models_overview(
 @router.post("/models/train/{ticker}", response_model=MessageResponse)
 async def train_model(
     ticker: str,
+    request: Request,
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -220,11 +224,12 @@ async def train_model(
 
 @router.post("/models/retrain-all", response_model=MessageResponse)
 async def retrain_all_models(
+    request: Request,
     portfolio_id: str | None = Query(default=None),
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    tickers = await _get_scoped_tickers(db, portfolio_id)
+    tickers = await _get_scoped_tickers(db, request, portfolio_id)
 
     if tickers:
         await train_many_tickers(db, tickers)
@@ -236,6 +241,7 @@ async def retrain_all_models(
 @router.get("/models/{ticker}/accuracy", response_model=ModelAccuracyOut)
 async def get_model_accuracy(
     ticker: str,
+    request: Request,
     model_type: str | None = Query(default=None),
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

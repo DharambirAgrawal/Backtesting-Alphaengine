@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -90,10 +90,13 @@ async def _delete_portfolio_children(db: AsyncSession, portfolio_id: str) -> Non
 
 @router.get("/portfolios", response_model=list[PortfolioOut])
 async def list_portfolios(
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Portfolio).order_by(Portfolio.created_at.desc())
+    stmt = select(Portfolio)
+    if current_user.role != "admin":
+        stmt = stmt.where(Portfolio.owner_user_id == current_user.id)
+    stmt = stmt.order_by(Portfolio.created_at.desc())
     rows = (await db.scalars(stmt)).all()
     return [await build_portfolio_out(db, row) for row in rows]
 
@@ -101,10 +104,11 @@ async def list_portfolios(
 @router.post("/portfolios", response_model=PortfolioOut)
 async def create_portfolio(
     payload: PortfolioCreateRequest,
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     portfolio = Portfolio(
+        owner_user_id=current_user.id,
         name=payload.name.strip(),
         description=payload.description,
         starting_capital=round(payload.starting_capital, 2),
@@ -151,10 +155,10 @@ async def create_portfolio(
 @router.get("/portfolios/{portfolio_id}", response_model=PortfolioOut)
 async def get_portfolio(
     portfolio_id: str,
-    _: User = Depends(get_current_user),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
     return await build_portfolio_out(db, portfolio)
 
 
@@ -162,10 +166,10 @@ async def get_portfolio(
 async def update_portfolio(
     portfolio_id: str,
     payload: PortfolioUpdateRequest,
-    _: User = Depends(get_current_user),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
 
     if payload.name is not None:
         portfolio.name = payload.name.strip()
@@ -183,10 +187,10 @@ async def update_portfolio(
 @router.delete("/portfolios/{portfolio_id}", response_model=MessageResponse)
 async def delete_portfolio(
     portfolio_id: str,
-    _: User = Depends(get_current_user),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
     tracked_tickers = await get_portfolio_tickers(db, portfolio.id)
     await _delete_portfolio_children(db, str(portfolio.id))
     await db.delete(portfolio)
@@ -199,10 +203,10 @@ async def delete_portfolio(
 async def add_tickers(
     portfolio_id: str,
     payload: AddTickersRequest,
-    _: User = Depends(get_current_user),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
 
     existing = set(await get_portfolio_tickers(db, portfolio.id))
     to_add: list[str] = []
@@ -252,10 +256,10 @@ async def add_tickers(
 async def remove_ticker(
     portfolio_id: str,
     ticker: str,
-    _: User = Depends(get_current_user),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
     symbol = normalize_ticker(ticker)
 
     ticker_row = await db.scalar(
@@ -291,8 +295,8 @@ async def remove_ticker(
 @router.get("/portfolios/{portfolio_id}/tickers", response_model=list[str])
 async def list_tickers(
     portfolio_id: str,
-    _: User = Depends(get_current_user),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
     return await get_portfolio_tickers(db, portfolio.id)

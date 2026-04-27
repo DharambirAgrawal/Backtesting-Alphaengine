@@ -4,7 +4,7 @@ import asyncio
 import math
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,10 +36,11 @@ def _to_agent_run_out(run: AgentRun) -> AgentRunOut:
 @router.post("/agent/{portfolio_id}/run", response_model=AgentRunOut)
 async def trigger_agent_run(
     portfolio_id: str,
+    request: Request,
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
 
     running_stmt = select(AgentRun.id).where(
         AgentRun.portfolio_id == portfolio.id,
@@ -97,10 +98,11 @@ async def trigger_agent_run(
 @router.get("/agent/{portfolio_id}/runs", response_model=list[AgentRunOut])
 async def get_agent_runs(
     portfolio_id: str,
+    request: Request,
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
 
     stmt = (
         select(AgentRun)
@@ -116,10 +118,11 @@ async def get_agent_runs(
 async def get_agent_run(
     portfolio_id: str,
     run_id: str,
+    request: Request,
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
 
     stmt = select(AgentRun).where(
         AgentRun.id == run_id,
@@ -135,10 +138,11 @@ async def get_agent_run(
 @router.post("/agent/{portfolio_id}/pause", response_model=MessageResponse)
 async def pause_agent(
     portfolio_id: str,
+    request: Request,
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
     portfolio.is_active = False
     await db.commit()
     return MessageResponse(message="Agent paused")
@@ -147,10 +151,11 @@ async def pause_agent(
 @router.post("/agent/{portfolio_id}/resume", response_model=MessageResponse)
 async def resume_agent(
     portfolio_id: str,
+    request: Request,
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    portfolio = await get_portfolio_or_404(portfolio_id, db)
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
     portfolio.is_active = True
     await db.commit()
     return MessageResponse(message="Agent resumed")

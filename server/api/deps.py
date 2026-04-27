@@ -37,6 +37,7 @@ async def get_admin_user(
 
 async def get_portfolio_or_404(
     portfolio_id: str,
+    request: Request,
     db: AsyncSession,
 ) -> Portfolio:
     portfolio = await db.get(Portfolio, portfolio_id)
@@ -45,4 +46,13 @@ async def get_portfolio_or_404(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Portfolio not found",
         )
+
+    role = getattr(request.state, "role", None)
+    user_id = getattr(request.state, "user_id", None)
+    if role != "admin" and str(portfolio.owner_user_id) != str(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found",
+        )
+
     return portfolio

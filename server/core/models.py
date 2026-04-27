@@ -41,6 +41,8 @@ class User(Base):
         onupdate=func.now(),
     )
 
+    portfolios: Mapped[list["Portfolio"]] = relationship("Portfolio", back_populates="owner")
+
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'user')", name="users_role_check"),
     )
@@ -51,6 +53,12 @@ class Portfolio(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -66,6 +74,8 @@ class Portfolio(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    owner: Mapped[User] = relationship("User", back_populates="portfolios")
 
     tickers: Mapped[list["PortfolioTicker"]] = relationship(
         "PortfolioTicker",
