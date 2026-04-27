@@ -22,7 +22,7 @@ export function AgentStatusBadge({
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-full px-3 py-1.5 text-sm",
+        "flex max-w-full items-center gap-2 rounded-full px-3 py-1.5 text-sm",
         status === "active" && "bg-profit/10 text-profit",
         status === "paused" && "bg-muted text-muted-foreground",
         status === "running" && "bg-primary/10 text-primary",
@@ -35,7 +35,9 @@ export function AgentStatusBadge({
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-profit opacity-75" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-profit" />
           </span>
-          <span>Next run in {countdown || "..."} ({timezoneLabel})</span>
+          <span className="truncate">
+            Next run in {countdown || "..."} ({timezoneLabel})
+          </span>
         </>
       )}
       {status === "paused" && (

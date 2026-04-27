@@ -66,7 +66,52 @@ export function HoldingsTable({ holdings, isLoading }: HoldingsTableProps) {
         <CardTitle className="text-base font-medium">Current Holdings</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
+        <div className="space-y-3 md:hidden">
+          {holdings.map((holding) => (
+            <div
+              key={holding.ticker}
+              className="rounded-lg border border-border/50 bg-background/50 p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-mono font-semibold text-foreground">
+                    {holding.ticker}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatShares(holding.shares)} shares
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono font-medium text-foreground">
+                    {formatCurrency(holding.value)}
+                  </div>
+                  <div
+                    className={cn(
+                      "text-xs font-mono",
+                      holding.profit_loss >= 0 ? "text-profit" : "text-loss"
+                    )}
+                  >
+                    {formatCurrency(holding.profit_loss, { showSign: true })}{" "}
+                    ({formatPct(holding.profit_loss_pct)})
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-md bg-secondary/30 p-2">
+                  <div className="text-xs text-muted-foreground">Avg Buy</div>
+                  <div className="font-mono">{formatCurrency(holding.avg_buy_price)}</div>
+                </div>
+                <div className="rounded-md bg-secondary/30 p-2">
+                  <div className="text-xs text-muted-foreground">Current</div>
+                  <div className="font-mono">{formatCurrency(holding.current_price)}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <Table>
             <TableHeader>
               <TableRow className="border-border/50 hover:bg-transparent">
@@ -84,7 +129,7 @@ export function HoldingsTable({ holdings, isLoading }: HoldingsTableProps) {
                   Value
                 </TableHead>
                 <TableHead className="text-right text-muted-foreground">
-                  P&L
+                  P&amp;L
                 </TableHead>
               </TableRow>
             </TableHeader>

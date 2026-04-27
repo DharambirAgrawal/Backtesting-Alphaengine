@@ -24,10 +24,10 @@ export function PortfolioValueCard({
     <Card className={cn("bg-card/50 border-border/50", className)}>
       <CardContent className="p-4">
         <p className="text-sm text-muted-foreground">Total Value</p>
-        <p className="mt-1 text-3xl font-bold font-mono text-foreground">
+        <p className="mt-1 break-words text-2xl font-bold font-mono text-foreground sm:text-3xl">
           {formatCurrency(totalValue)}
         </p>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <div
             className={cn(
               "flex items-center gap-1 rounded-md px-2 py-0.5",
@@ -47,7 +47,7 @@ export function PortfolioValueCard({
           </div>
           <span
             className={cn(
-              "text-sm font-mono",
+              "text-sm font-mono break-words",
               isPositive ? "text-profit" : "text-loss"
             )}
           >

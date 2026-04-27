@@ -23,11 +23,11 @@ export function StatsCard({
     <Card className={cn("bg-card/50 border-border/50", className)}>
       <CardContent className="p-4">
         <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="mt-1 text-2xl font-semibold font-mono text-foreground">
+        <p className="mt-1 break-words text-xl font-semibold font-mono text-foreground sm:text-2xl">
           {value}
         </p>
         {subValue && (
-          <div className="mt-1 flex items-center gap-1">
+          <div className="mt-1 flex items-start gap-1">
             {trend === "up" && (
               <TrendingUp className="h-3 w-3 text-profit" />
             )}
@@ -39,7 +39,7 @@ export function StatsCard({
             )}
             <span
               className={cn(
-                "text-sm font-mono",
+                "text-sm font-mono leading-snug break-words",
                 trend === "up" && "text-profit",
                 trend === "down" && "text-loss",
                 trend === "neutral" && "text-muted-foreground"

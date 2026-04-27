@@ -44,18 +44,19 @@ export function ValueChart({
 
   const gradientColor = isPositive ? CHART_COLORS.green : CHART_COLORS.red;
   const lineColor = CHART_COLORS.primary;
+  const chartHeight = 260;
 
   return (
     <Card className="bg-card/50 border-border/50">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
+      <CardHeader className="flex flex-col gap-3 pb-2 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="text-base font-medium">Portfolio Value</CardTitle>
         <Tabs value={period} onValueChange={onPeriodChange}>
-          <TabsList className="h-8 bg-secondary/50">
+          <TabsList className="h-8 w-full justify-start overflow-x-auto bg-secondary/50 sm:w-auto">
             {CHART_PERIODS.map((p) => (
               <TabsTrigger
                 key={p.value}
                 value={p.value}
-                className="h-7 px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                className="h-7 shrink-0 px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 {p.label}
               </TabsTrigger>
@@ -65,9 +66,9 @@ export function ValueChart({
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <Skeleton className="h-[300px] w-full" />
+          <Skeleton className="h-[260px] w-full sm:h-[300px]" />
         ) : (
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={chartHeight}>
             <AreaChart
               data={chartData}
               margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
@@ -85,6 +86,7 @@ export function ValueChart({
                 tick={{ fill: "#94a3b8", fontSize: 12 }}
                 tickFormatter={(value) => formatDate(value)}
                 interval="preserveStartEnd"
+                minTickGap={24}
               />
               <YAxis
                 axisLine={false}

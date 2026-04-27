@@ -33,7 +33,7 @@ export default function DashboardPage() {
   return (
     <DashboardLayout title="Portfolios">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
               Your Portfolios
@@ -42,7 +42,7 @@ export default function DashboardPage() {
               Manage your paper trading portfolios
             </p>
           </div>
-          <Button asChild>
+          <Button asChild className="w-full sm:w-auto">
             <Link href="/portfolios/new">
               <Plus className="h-4 w-4" />
               Create Portfolio
@@ -51,7 +51,7 @@ export default function DashboardPage() {
         </div>
 
         {isLoading ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {[1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-48" />
             ))}
@@ -74,7 +74,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {portfolios.map((portfolio) => {
               const isPositive = portfolio.profit_loss >= 0;
               return (
@@ -98,8 +98,8 @@ export default function DashboardPage() {
                       )}
                     </CardHeader>
                     <CardContent>
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-2xl font-bold font-mono text-foreground">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <span className="break-words text-2xl font-bold font-mono text-foreground">
                           {formatCurrency(portfolio.total_value)}
                         </span>
                         <div
@@ -119,8 +119,8 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
-                      <div className="mt-4 flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-1 text-muted-foreground">
+                      <div className="mt-4 text-sm">
+                        <div className="flex flex-wrap items-center gap-1 text-muted-foreground">
                           <span className="font-mono">
                             {formatCurrency(portfolio.starting_capital)}
                           </span>
@@ -136,7 +136,7 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
-                      <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                         <span>{portfolio.tickers.length} tickers</span>
                         <span>Created {formatDate(portfolio.created_at)}</span>
                       </div>

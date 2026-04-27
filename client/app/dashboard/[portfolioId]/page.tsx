@@ -79,12 +79,13 @@ export default function PortfolioDashboardPage() {
               timezoneLabel="ET"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <Button
               variant="outline"
               size="sm"
               onClick={handleTogglePause}
               disabled={isRunning}
+              className="w-full sm:w-auto"
             >
               {dashboard?.portfolio.is_active ? (
                 <>
@@ -98,7 +99,12 @@ export default function PortfolioDashboardPage() {
                 </>
               )}
             </Button>
-            <Button size="sm" onClick={handleRunAgent} disabled={isRunning}>
+            <Button
+              size="sm"
+              onClick={handleRunAgent}
+              disabled={isRunning}
+              className="w-full sm:w-auto"
+            >
               {isRunning ? (
                 <>
                   <RefreshCw className="h-4 w-4 animate-spin" />
@@ -116,13 +122,13 @@ export default function PortfolioDashboardPage() {
 
         {/* Summary Stats Row */}
         {isLoading ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {[1, 2, 3, 4].map((i) => (
               <Skeleton key={i} className="h-24" />
             ))}
           </div>
         ) : dashboard ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <PortfolioValueCard
               totalValue={dashboard.portfolio.total_value}
               profitLoss={dashboard.portfolio.profit_loss}
@@ -156,13 +162,13 @@ export default function PortfolioDashboardPage() {
 
         {/* Performance Row */}
         {isLoading ? (
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {[1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-24" />
             ))}
           </div>
         ) : dashboard ? (
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <StatsCard
               label="Sharpe Ratio"
               value={formatNumber(dashboard.performance.sharpe_ratio, {
