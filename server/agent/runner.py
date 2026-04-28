@@ -284,55 +284,54 @@ async def _with_retries(
     raise RuntimeError("Retry helper reached an unexpected state")
 
 
-async def _load_or_create_run(
-    portfolio_id: str,
-    session: str,
-    run_type: str,
-    run_id: str | None,
-):
-    async with SessionLocal() as db:
-        run: AgentRun | None = None
-
-        if run_id:
-            run = await db.get(AgentRun, run_id)
-
-        if not run:
-            run = AgentRun(
-                portfolio_id=portfolio_id,
-                run_type=run_type,
-                session=session,
-                status="running",
-                started_at=datetime.now(timezone.utc),
-            )
-            db.add(run)
-            await db.commit()
-            await db.refresh(run)
-
-        return str(run.id)
-
-
 async def run_agent(
     portfolio_id: str,
     session: str = "manual",
     run_type: str = "manual",
     run_id: str | None = None,
 ) -> dict:
-    resolved_run_id = await _load_or_create_run(portfolio_id, session, run_type, run_id)
-
     async with SessionLocal() as db:
         lock_key = abs(hash(str(portfolio_id))) % (2**31)
-        got_lock = await db.scalar(select(func.pg_try_advisory_lock(lock_key)))
+        got_lock = bool(await db.scalar(select(func.pg_try_advisory_lock(lock_key))))
         if not got_lock:
+            # If a run record was pre-created (manual trigger path), ensure it doesn't
+            # stay "running" forever.
+            if run_id:
+                run = await db.get(AgentRun, run_id)
+                if run and run.status == "running":
+                    run.status = "done"
+                    run.trades_made = run.trades_made or 0
+                    run.summary = (run.summary or "").strip() or "Skipped: run already in progress."
+                    run.completed_at = datetime.now(timezone.utc)
+                    await db.commit()
             return {"status": "skipped", "reason": "run already in progress"}
 
-        run = await db.get(AgentRun, resolved_run_id)
-        portfolio = await db.get(Portfolio, portfolio_id)
-
-        if not run or not portfolio:
-            await db.execute(select(func.pg_advisory_unlock(lock_key)))
-            return {"status": "failed", "error": "Run or portfolio not found"}
-
+        run: AgentRun | None = None
         try:
+            if run_id:
+                run = await db.get(AgentRun, run_id)
+
+            if not run:
+                run = AgentRun(
+                    portfolio_id=portfolio_id,
+                    run_type=run_type,
+                    session=session,
+                    status="running",
+                    started_at=datetime.now(timezone.utc),
+                )
+                db.add(run)
+                await db.commit()
+                await db.refresh(run)
+
+            portfolio = await db.get(Portfolio, portfolio_id)
+
+            if not portfolio:
+                run.status = "failed"
+                run.summary = "Run failed: Portfolio not found"
+                run.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                return {"status": "failed", "error": "Portfolio not found"}
+
             tickers = await get_portfolio_tickers(db, portfolio.id)
             holdings, _ = await build_holdings_view(db, portfolio.id)
             portfolio_out = await build_portfolio_out(db, portfolio)
@@ -528,15 +527,18 @@ async def run_agent(
             }
 
         except Exception as exc:
-            run.status = "failed"
-            run.summary = f"Run failed: {exc}"
-            run.per_ticker_decisions = run.per_ticker_decisions or []
-            run.completed_at = datetime.now(timezone.utc)
-            await db.commit()
-            return {
-                "status": "failed",
-                "run_id": str(run.id),
-                "error": str(exc),
-            }
+            if run is not None:
+                run.status = "failed"
+                run.summary = f"Run failed: {exc}"
+                run.per_ticker_decisions = run.per_ticker_decisions or []
+                run.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                return {
+                    "status": "failed",
+                    "run_id": str(run.id),
+                    "error": str(exc),
+                }
+            return {"status": "failed", "error": str(exc)}
         finally:
+            # Advisory locks are connection-scoped; ensure we release on the same session.
             await db.execute(select(func.pg_advisory_unlock(lock_key)))

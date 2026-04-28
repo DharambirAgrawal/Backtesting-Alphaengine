@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from sqlalchemy import desc, select
@@ -29,6 +29,44 @@ def as_float(value, default: float = 0.0) -> float:
     if value is None:
         return default
     return float(value)
+
+
+async def heal_stale_agent_runs(
+    db: AsyncSession,
+    *,
+    portfolio_id=None,
+    stale_after_minutes: int = 60,
+) -> int:
+    """Mark long-running agent runs as failed so they don't block new runs.
+
+    This primarily defends against crashes/lock contention bugs that leave rows in
+    a perpetual "running" state.
+    """
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_after_minutes)
+    stmt = (
+        select(AgentRun)
+        .where(AgentRun.status == "running")
+        .where(AgentRun.completed_at.is_(None))
+        .where(AgentRun.started_at < cutoff)
+        .order_by(AgentRun.started_at.asc())
+    )
+    if portfolio_id is not None:
+        stmt = stmt.where(AgentRun.portfolio_id == portfolio_id)
+
+    stale_runs = list((await db.scalars(stmt)).all())
+    if not stale_runs:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    for run in stale_runs:
+        run.status = "failed"
+        if not (run.summary or "").strip():
+            run.summary = "Run marked failed: stale running state."
+        run.completed_at = now
+
+    await db.commit()
+    return len(stale_runs)
 
 
 async def get_portfolio_tickers(db: AsyncSession, portfolio_id) -> list[str]:
@@ -291,6 +329,7 @@ async def get_agent_runs(
     portfolio_id,
     limit: int = 20,
 ) -> list[AgentRun]:
+    await heal_stale_agent_runs(db, portfolio_id=portfolio_id)
     stmt = (
         select(AgentRun)
         .where(AgentRun.portfolio_id == portfolio_id)

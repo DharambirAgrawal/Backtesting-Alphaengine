@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.runner import run_agent
 from api.deps import get_current_user, get_portfolio_or_404
-from api.utils import as_float, transaction_to_out
+from api.utils import as_float, heal_stale_agent_runs, transaction_to_out
 from core.database import get_db
 from core.models import AgentRun, Portfolio, Transaction, User
 from core.schemas import AgentRunDetailOut, AgentRunOut, AgentRunTickerDetailOut, MessageResponse
@@ -172,6 +172,9 @@ async def trigger_agent_run(
 ):
     portfolio = await get_portfolio_or_404(portfolio_id, request, db)
 
+    # Defensive cleanup: avoid stale "running" rows blocking manual triggers.
+    await heal_stale_agent_runs(db, portfolio_id=portfolio.id)
+
     running_stmt = select(AgentRun.id).where(
         AgentRun.portfolio_id == portfolio.id,
         AgentRun.status == "running",
@@ -233,6 +236,9 @@ async def get_agent_runs(
     db: AsyncSession = Depends(get_db),
 ):
     portfolio = await get_portfolio_or_404(portfolio_id, request, db)
+
+    # Defensive cleanup for UI correctness.
+    await heal_stale_agent_runs(db, portfolio_id=portfolio.id)
 
     stmt = (
         select(AgentRun)

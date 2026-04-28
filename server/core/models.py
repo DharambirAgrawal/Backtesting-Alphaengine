@@ -235,7 +235,7 @@ class AgentRun(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('running', 'done', 'failed')",
+            "status IN ('running', 'done', 'failed', 'skipped')",
             name="agent_runs_status_check",
         ),
     )
