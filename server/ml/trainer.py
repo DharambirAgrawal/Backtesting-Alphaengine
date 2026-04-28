@@ -13,6 +13,7 @@ from data.exceptions import MarketDataUnavailableError
 from data.market_data import get_history, get_ohlcv_dataframe
 from ml.features import add_technical_features
 from ml.model_fit import fit_lstm_price_direction, fit_xgb_direction
+from ml.predictor import invalidate_model_cache
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -126,6 +127,7 @@ async def train_ticker_models(db: AsyncSession, ticker: str) -> dict:
     )
 
     await db.commit()
+    invalidate_model_cache(symbol)
 
     return {
         "ticker": symbol,

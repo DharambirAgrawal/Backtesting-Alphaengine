@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     AGENT_CRON_HOUR: int = 9
     AGENT_CRON_MINUTE: int = 35
     AGENT_CRON_HOURS: str | None = "9,12,15"
+    MAX_CONCURRENT_AGENT_RUNS: int = 2
+    MODEL_RETRAIN_ENABLED: bool = False
+    PREDICTION_ACTUALS_BATCH_SIZE: int = 200
 
     # App
     ENVIRONMENT: str = "production"
@@ -106,6 +109,14 @@ class Settings(BaseSettings):
             if 0 <= hour <= 23:
                 values.append(hour)
         return sorted(set(values)) or [self.AGENT_CRON_HOUR]
+
+    @property
+    def max_concurrent_agent_runs(self) -> int:
+        return max(1, int(self.MAX_CONCURRENT_AGENT_RUNS))
+
+    @property
+    def prediction_actuals_batch_size(self) -> int:
+        return max(1, int(self.PREDICTION_ACTUALS_BATCH_SIZE))
 
 
 @lru_cache

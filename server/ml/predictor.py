@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import math
+from collections import OrderedDict
 from typing import Any
 
 import joblib
@@ -15,17 +16,40 @@ from ml.features import add_technical_features
 from ml.model_fit import TinyLSTM
 
 
-MODEL_CACHE: dict[str, dict] = {}
+MODEL_CACHE_MAX_ITEMS = 16
+MODEL_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
 
 
 def _cache_key(ticker: str, kind: str) -> str:
     return f"{ticker.upper()}:{kind}"
 
 
+def _cache_get(key: str) -> dict[str, Any] | None:
+    item = MODEL_CACHE.get(key)
+    if item is None:
+        return None
+    MODEL_CACHE.move_to_end(key)
+    return item
+
+
+def _cache_set(key: str, value: dict[str, Any]) -> None:
+    MODEL_CACHE[key] = value
+    MODEL_CACHE.move_to_end(key)
+    while len(MODEL_CACHE) > MODEL_CACHE_MAX_ITEMS:
+        MODEL_CACHE.popitem(last=False)
+
+
+def invalidate_model_cache(ticker: str) -> None:
+    symbol = ticker.upper()
+    MODEL_CACHE.pop(_cache_key(symbol, "xgb"), None)
+    MODEL_CACHE.pop(_cache_key(symbol, "lstm"), None)
+
+
 def _load_xgb_bundle(ticker: str) -> dict[str, Any] | None:
     key = _cache_key(ticker, "xgb")
-    if key in MODEL_CACHE:
-        return MODEL_CACHE[key]
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
 
     raw = supabase_storage.download_bytes(f"xgboost/{ticker.upper()}_xgb.pkl")
     if not raw:
@@ -34,7 +58,7 @@ def _load_xgb_bundle(ticker: str) -> dict[str, Any] | None:
         bundle = joblib.load(io.BytesIO(raw))
         if not isinstance(bundle, dict) or "model" not in bundle:
             return None
-        MODEL_CACHE[key] = bundle
+        _cache_set(key, bundle)
         return bundle
     except Exception:
         return None
@@ -42,8 +66,9 @@ def _load_xgb_bundle(ticker: str) -> dict[str, Any] | None:
 
 def _load_lstm_bundle(ticker: str) -> dict[str, Any] | None:
     key = _cache_key(ticker, "lstm")
-    if key in MODEL_CACHE:
-        return MODEL_CACHE[key]
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
 
     raw = supabase_storage.download_bytes(f"lstm/{ticker.upper()}_lstm.pt")
     if not raw:
@@ -57,7 +82,7 @@ def _load_lstm_bundle(ticker: str) -> dict[str, Any] | None:
             payload = torch.load(raw_io, map_location=torch.device("cpu"))
         if not isinstance(payload, dict) or "state_dict" not in payload:
             return None
-        MODEL_CACHE[key] = payload
+        _cache_set(key, payload)
         return payload
     except Exception:
         return None

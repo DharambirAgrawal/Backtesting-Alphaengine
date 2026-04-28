@@ -87,18 +87,30 @@ async def run_all_portfolios(session: str) -> None:
         stmt = select(Portfolio.id).where(Portfolio.is_active.is_(True))
         portfolio_ids = [str(item) for item in (await db.scalars(stmt)).all()]
 
-    tasks = [
-        run_agent(portfolio_id=pid, session=session, run_type="scheduled") for pid in portfolio_ids
-    ]
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
+    if not portfolio_ids:
+        return
+
+    semaphore = asyncio.Semaphore(settings.max_concurrent_agent_runs)
+
+    async def _run_one(pid: str) -> None:
+        async with semaphore:
+            await run_agent(portfolio_id=pid, session=session, run_type="scheduled")
+
+    tasks = [_run_one(pid) for pid in portfolio_ids]
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def run_single_portfolio_scheduled(portfolio_id: str, session: str = "adaptive") -> None:
-    await run_agent(portfolio_id=portfolio_id, session=session, run_type="scheduled")
+    try:
+        await run_agent(portfolio_id=portfolio_id, session=session, run_type="scheduled")
+    finally:
+        _dynamic_jobs.pop(portfolio_id, None)
 
 
 async def retrain_all_models_job() -> None:
+    if not settings.MODEL_RETRAIN_ENABLED:
+        return
+
     async with SessionLocal() as db:
         stmt = select(PortfolioTicker.ticker).distinct()
         tickers = [str(item).upper() for item in (await db.scalars(stmt)).all()]
@@ -151,6 +163,7 @@ async def resolve_prediction_history_actuals_job() -> None:
                 PredictionHistory.prediction_for_date.asc(),
                 PredictionHistory.recorded_at.asc(),
             )
+            .limit(settings.prediction_actuals_batch_size)
         )
         rows = (await db.scalars(stmt)).all()
         if not rows:
@@ -248,12 +261,13 @@ def start_scheduler() -> None:
                 replace_existing=True,
             )
 
-    scheduler.add_job(
-        retrain_all_models_job,
-        trigger=CronTrigger(day_of_week="sun", hour=2, minute=0, timezone="UTC"),
-        id="retrain-weekly",
-        replace_existing=True,
-    )
+    if settings.MODEL_RETRAIN_ENABLED:
+        scheduler.add_job(
+            retrain_all_models_job,
+            trigger=CronTrigger(day_of_week="sun", hour=2, minute=0, timezone="UTC"),
+            id="retrain-weekly",
+            replace_existing=True,
+        )
 
     scheduler.add_job(
         resolve_prediction_history_actuals_job,
