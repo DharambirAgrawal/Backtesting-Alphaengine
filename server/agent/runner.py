@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from agent.tools import (
     classify_direction_tool,
@@ -299,11 +300,19 @@ async def run_agent(
             if run_id:
                 run = await db.get(AgentRun, run_id)
                 if run and run.status == "running":
-                    run.status = "done"
+                    run.status = "skipped"
                     run.trades_made = run.trades_made or 0
                     run.summary = (run.summary or "").strip() or "Skipped: run already in progress."
                     run.completed_at = datetime.now(timezone.utc)
-                    await db.commit()
+                    try:
+                        await db.commit()
+                    except IntegrityError:
+                        # Older databases may still enforce a CHECK constraint without
+                        # the 'skipped' status; fall back to a terminal status that
+                        # always exists.
+                        await db.rollback()
+                        run.status = "done"
+                        await db.commit()
             return {"status": "skipped", "reason": "run already in progress"}
 
         run: AgentRun | None = None

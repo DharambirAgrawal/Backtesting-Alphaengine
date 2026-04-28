@@ -35,7 +35,7 @@ async def heal_stale_agent_runs(
     db: AsyncSession,
     *,
     portfolio_id=None,
-    stale_after_minutes: int = 60,
+    stale_after_minutes: int = 180,
 ) -> int:
     """Mark long-running agent runs as failed so they don't block new runs.
 
@@ -43,26 +43,55 @@ async def heal_stale_agent_runs(
     a perpetual "running" state.
     """
 
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_after_minutes)
-    stmt = (
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=stale_after_minutes)
+
+    # Fetch all currently-running rows (for a portfolio if provided).
+    running_stmt = (
         select(AgentRun)
         .where(AgentRun.status == "running")
         .where(AgentRun.completed_at.is_(None))
-        .where(AgentRun.started_at < cutoff)
         .order_by(AgentRun.started_at.asc())
     )
     if portfolio_id is not None:
-        stmt = stmt.where(AgentRun.portfolio_id == portfolio_id)
+        running_stmt = running_stmt.where(AgentRun.portfolio_id == portfolio_id)
 
-    stale_runs = list((await db.scalars(stmt)).all())
+    running_runs = list((await db.scalars(running_stmt)).all())
+    if not running_runs:
+        return 0
+
+    # If we know a later run completed, any older "running" row is impossible
+    # (per-portfolio advisory lock enforces single-run execution).
+    latest_completed_at: datetime | None = None
+    if portfolio_id is not None:
+        completed_stmt = (
+            select(AgentRun.completed_at)
+            .where(AgentRun.portfolio_id == portfolio_id)
+            .where(AgentRun.completed_at.is_not(None))
+            .order_by(AgentRun.completed_at.desc())
+            .limit(1)
+        )
+        latest_completed_at = await db.scalar(completed_stmt)
+
+    stale_runs: list[AgentRun] = []
+    for run in running_runs:
+        impossible = bool(latest_completed_at and latest_completed_at > run.started_at)
+        too_old = run.started_at < cutoff
+        if impossible or too_old:
+            stale_runs.append(run)
+
     if not stale_runs:
         return 0
 
-    now = datetime.now(timezone.utc)
     for run in stale_runs:
         run.status = "failed"
-        if not (run.summary or "").strip():
-            run.summary = "Run marked failed: stale running state."
+        minutes_running = max(0, int((now - run.started_at).total_seconds() // 60))
+        note = (
+            "Skipped: run was marked stale (stuck in running state). "
+            f"Elapsed≈{minutes_running}m; threshold={stale_after_minutes}m."
+        )
+        existing = (run.summary or "").strip()
+        run.summary = existing + ("\n\n" if existing else "") + note
         run.completed_at = now
 
     await db.commit()
