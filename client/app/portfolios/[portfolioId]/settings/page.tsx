@@ -34,6 +34,8 @@ import {
   deletePortfolio,
   addTickers,
   removeTicker,
+  depositToPortfolio,
+  withdrawFromPortfolio,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { toast } from "sonner";
@@ -56,6 +58,8 @@ export default function PortfolioSettingsPage() {
   const [isAddingTicker, setIsAddingTicker] = useState(false);
   const [removingTicker, setRemovingTicker] = useState<string | null>(null);
   const [localTickers, setLocalTickers] = useState<string[]>([]);
+  const [cashAmount, setCashAmount] = useState("");
+  const [isProcessingCash, setIsProcessingCash] = useState(false);
   // Preserve company names returned from search so badges show "AAPL · Apple Inc."
   const [tickerNameMap, setTickerNameMap] = useState<Record<string, string>>({});
 
@@ -313,6 +317,75 @@ export default function PortfolioSettingsPage() {
                     : "-"}
                 </span>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Deposit / Withdraw */}
+        <Card className="bg-card/50 border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base">Adjust Cash</CardTitle>
+            <CardDescription>
+              Deposit or withdraw cash from this portfolio. Deposits increase
+              starting capital so performance metrics remain comparable.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Amount (e.g. 1000.00)"
+                value={cashAmount}
+                onChange={(e) => setCashAmount(e.target.value)}
+                className="w-full bg-background/50"
+                inputMode="decimal"
+              />
+              <Button
+                onClick={async () => {
+                  const amt = parseFloat(cashAmount);
+                  if (isNaN(amt) || amt <= 0) {
+                    toast.error("Enter a valid amount to deposit");
+                    return;
+                  }
+                  setIsProcessingCash(true);
+                  try {
+                    await depositToPortfolio(portfolioId, amt);
+                    toast.success(`Deposited ${formatCurrency(amt)}`);
+                    setCashAmount("");
+                    await refresh();
+                  } catch (err) {
+                    toast.error("Deposit failed", { description: err instanceof Error ? err.message : undefined });
+                  } finally {
+                    setIsProcessingCash(false);
+                  }
+                }}
+                disabled={isProcessingCash}
+              >
+                Deposit
+              </Button>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  const amt = parseFloat(cashAmount);
+                  if (isNaN(amt) || amt <= 0) {
+                    toast.error("Enter a valid amount to withdraw");
+                    return;
+                  }
+                  setIsProcessingCash(true);
+                  try {
+                    await withdrawFromPortfolio(portfolioId, amt);
+                    toast.success(`Withdrew ${formatCurrency(amt)}`);
+                    setCashAmount("");
+                    await refresh();
+                  } catch (err) {
+                    toast.error("Withdrawal failed", { description: err instanceof Error ? err.message : undefined });
+                  } finally {
+                    setIsProcessingCash(false);
+                  }
+                }}
+                disabled={isProcessingCash}
+              >
+                Withdraw
+              </Button>
             </div>
           </CardContent>
         </Card>

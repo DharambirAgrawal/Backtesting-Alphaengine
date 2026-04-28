@@ -26,6 +26,7 @@ from core.schemas import (
     PortfolioCreateRequest,
     PortfolioOut,
     PortfolioUpdateRequest,
+    CashAdjustmentRequest,
 )
 from core.supabase_client import supabase_storage
 from data.ticker_search import validate_ticker
@@ -300,3 +301,47 @@ async def list_tickers(
 ):
     portfolio = await get_portfolio_or_404(portfolio_id, request, db)
     return await get_portfolio_tickers(db, portfolio.id)
+
+
+@router.post("/portfolios/{portfolio_id}/deposit", response_model=PortfolioOut)
+async def deposit_to_portfolio(
+    portfolio_id: str,
+    payload: CashAdjustmentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
+
+    amt = round(payload.amount, 2)
+    portfolio.current_cash = round(float(portfolio.current_cash) + amt, 2)
+    # Increase starting capital so profit calculations remain anchored to user-supplied base
+    portfolio.starting_capital = round(float(portfolio.starting_capital) + amt, 2)
+
+    await db.commit()
+    await snapshot_portfolio(db, portfolio.id)
+    await db.refresh(portfolio)
+    return await build_portfolio_out(db, portfolio)
+
+
+@router.post("/portfolios/{portfolio_id}/withdraw", response_model=PortfolioOut)
+async def withdraw_from_portfolio(
+    portfolio_id: str,
+    payload: CashAdjustmentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    portfolio = await get_portfolio_or_404(portfolio_id, request, db)
+
+    amt = round(payload.amount, 2)
+    current_cash = float(portfolio.current_cash)
+    if amt > current_cash:
+        raise HTTPException(status_code=400, detail="Insufficient available cash for withdrawal")
+
+    portfolio.current_cash = round(current_cash - amt, 2)
+    # Decrease starting capital so performance metrics reflect withdrawals
+    portfolio.starting_capital = round(max(0.0, float(portfolio.starting_capital) - amt), 2)
+
+    await db.commit()
+    await snapshot_portfolio(db, portfolio.id)
+    await db.refresh(portfolio)
+    return await build_portfolio_out(db, portfolio)

@@ -60,6 +60,11 @@ class PortfolioUpdateRequest(APIModel):
     is_active: bool | None = None
 
 
+class CashAdjustmentRequest(APIModel):
+    amount: float = Field(gt=0)
+    note: str | None = None
+
+
 class AddTickersRequest(APIModel):
     tickers: list[str] = Field(min_length=1, max_length=50)
 

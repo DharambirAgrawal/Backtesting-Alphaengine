@@ -249,6 +249,20 @@ export async function getModelAccuracy(ticker: string, modelType?: string) {
   );
 }
 
+export async function depositToPortfolio(portfolioId: string, amount: number, note?: string) {
+  return request<Portfolio>(`/portfolios/${portfolioId}/deposit`, {
+    method: "POST",
+    body: { amount, note },
+  });
+}
+
+export async function withdrawFromPortfolio(portfolioId: string, amount: number, note?: string) {
+  return request<Portfolio>(`/portfolios/${portfolioId}/withdraw`, {
+    method: "POST",
+    body: { amount, note },
+  });
+}
+
 export async function triggerAgentRun(portfolioId: string) {
   return request<AgentRun>(`/agent/${portfolioId}/run`, {
     method: "POST",
