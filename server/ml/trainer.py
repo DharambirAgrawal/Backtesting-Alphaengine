@@ -150,8 +150,9 @@ async def train_many_tickers(db: AsyncSession, tickers: list[str]) -> dict:
         except Exception as exc:
             failed.append({"ticker": ticker, "error": str(exc)})
             
-        # Add a delay between tickers to avoid rate-limiting from market data providers
-        await asyncio.sleep(3.0)
+        # Increase delay to 15s to respect Alpha Vantage's free tier limit (5 requests per minute)
+        # This ensures that even with 20+ tickers, we don't get blocked.
+        await asyncio.sleep(15.0)
 
     avg_accuracy = 0.0
     if results:

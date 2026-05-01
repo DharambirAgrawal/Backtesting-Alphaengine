@@ -201,8 +201,11 @@ def _alpha_vantage_daily_sync(ticker: str) -> pd.DataFrame:
         "outputsize": "full",
         "apikey": key,
     }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     try:
-        with httpx.Client(timeout=45.0) as client:
+        with httpx.Client(timeout=45.0, headers=headers) as client:
             r = client.get(url, params=params)
             r.raise_for_status()
             payload = r.json()
@@ -211,11 +214,35 @@ def _alpha_vantage_daily_sync(ticker: str) -> pd.DataFrame:
 
     if not isinstance(payload, dict):
         return pd.DataFrame()
+    
+    # If we hit the 5/min limit, try waiting 10s once
+    if payload.get("Note") and "call frequency" in str(payload.get("Note")).lower():
+        import time
+        time.sleep(10.0)
+        try:
+            with httpx.Client(timeout=45.0, headers=headers) as client:
+                r = client.get(url, params=params)
+                payload = r.json()
+        except Exception:
+            return pd.DataFrame()
+
     if payload.get("Note") or payload.get("Error Message"):
         return pd.DataFrame()
 
-    series = payload.get("Time Series (Daily)") or payload.get("daily") or {}
-    if not isinstance(series, dict) or not series:
+    series = payload.get("Time Series (Daily)") or payload.get("daily")
+    if not series or not isinstance(series, dict):
+        # Fallback to compact if full failed for some reason
+        if params.get("outputsize") == "full":
+            params["outputsize"] = "compact"
+            try:
+                with httpx.Client(timeout=45.0, headers=headers) as client:
+                    r = client.get(url, params=params)
+                    payload = r.json()
+                    series = payload.get("Time Series (Daily)") or payload.get("daily")
+            except Exception:
+                return pd.DataFrame()
+    
+    if not series or not isinstance(series, dict):
         return pd.DataFrame()
 
     rows: list[dict] = []
@@ -342,11 +369,14 @@ def _daily_ohlcv_first_hit(ticker: str, period: str) -> pd.DataFrame:
         seq.append(("stooq", lambda: _stooq_daily_sync(ticker)))
     seq.append(("alpha_vantage", lambda: _alpha_vantage_daily_sync(ticker)))
 
-    for _, fn in seq:
-        df = fn()
-        if df is not None and not df.empty:
-            _cache_put_ohlcv(ticker, df)
-            return df
+    for name, fn in seq:
+        try:
+            df = fn()
+            if df is not None and not df.empty:
+                _cache_put_ohlcv(ticker, df)
+                return df
+        except Exception as exc:
+            logging.debug(f"Provider {name} failed for {ticker}: {exc}")
     return _cache_get_ohlcv(ticker)
 
 
@@ -402,7 +432,7 @@ async def get_current_price(ticker: str) -> float:
     rows = await get_history(ticker, days=2)
     if rows:
         return float(rows[-1]["close"])
-    if settings.ALLOW_SYNTHETIC_MARKET_DATA:
+    if ALLOW_SYNTHETIC_MARKET_DATA:
         return _fallback_price(ticker)
     raise MarketDataUnavailableError(_empty_chain_message(ticker))
 
@@ -416,7 +446,7 @@ async def get_price_snapshot(ticker: str) -> dict:
         last = float(rows[-1]["close"])
         prev = last
     else:
-        if settings.ALLOW_SYNTHETIC_MARKET_DATA:
+        if ALLOW_SYNTHETIC_MARKET_DATA:
             last = _fallback_price(ticker)
             prev = last
         else:
