@@ -1,12 +1,20 @@
 from functools import lru_cache
+import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# Hardcoded System Configurations (Removed from ENV for simplicity)
-STOOQ_FIRST = True
-ALLOW_SYNTHETIC_MARKET_DATA = False
-ALLOW_SYNTHETIC_NEWS = False
+# System Configurations
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+STOOQ_FIRST = _env_bool("STOOQ_FIRST", True)
+ALLOW_SYNTHETIC_MARKET_DATA = _env_bool("ALLOW_SYNTHETIC_MARKET_DATA", False)
+ALLOW_SYNTHETIC_NEWS = _env_bool("ALLOW_SYNTHETIC_NEWS", False)
 
 # Hardcoded Scheduler Configurations
 AGENT_CRON_ENABLED = True
