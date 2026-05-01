@@ -239,6 +239,8 @@ def _alpha_vantage_daily_sync(ticker: str) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
 
+    frame = pd.DataFrame(rows)
+    frame["date"] = pd.to_datetime(frame["date"])
     frame = frame.set_index("date").sort_index()
     max_days = _period_to_max_days("5y")
     if len(frame) > max_days:
