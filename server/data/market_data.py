@@ -9,7 +9,7 @@ import httpx
 import pandas as pd
 import yfinance as yf
 
-from core.config import settings
+from core.config import settings, ALLOW_SYNTHETIC_MARKET_DATA, STOOQ_FIRST
 from data.exceptions import MarketDataUnavailableError
 
 for _log in ("yfinance", "yfinance.base", "yfinance.ticker", "yfinance.scrapers"):
@@ -239,13 +239,62 @@ def _alpha_vantage_daily_sync(ticker: str) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
 
-    frame = pd.DataFrame(rows)
-    frame["date"] = pd.to_datetime(frame["date"], utc=True)
     frame = frame.set_index("date").sort_index()
     max_days = _period_to_max_days("5y")
     if len(frame) > max_days:
         frame = frame.tail(max_days)
     return frame
+
+
+def _finnhub_daily_sync(ticker: str, period: str) -> pd.DataFrame:
+    key = settings.FINNHUB_API_KEY
+    if not key:
+        return pd.DataFrame()
+
+    days = _period_to_max_days(period)
+    end_time = int(datetime.now(timezone.utc).timestamp())
+    start_time = end_time - (days * 86400)
+
+    url = "https://finnhub.io/api/v1/stock/candle"
+    params = {
+        "symbol": ticker.upper(),
+        "resolution": "D",
+        "from": start_time,
+        "to": end_time,
+        "token": key,
+    }
+    try:
+        with httpx.Client(timeout=45.0) as client:
+            r = client.get(url, params=params)
+            r.raise_for_status()
+            payload = r.json()
+    except Exception:
+        return pd.DataFrame()
+
+    if not isinstance(payload, dict) or payload.get("s") != "ok":
+        return pd.DataFrame()
+
+    try:
+        frame = pd.DataFrame({
+            "close": payload.get("c", []),
+            "high": payload.get("h", []),
+            "low": payload.get("l", []),
+            "open": payload.get("o", []),
+            "volume": payload.get("v", []),
+            "date": pd.to_datetime(payload.get("t", []), unit="s", utc=True)
+        })
+    except Exception:
+        return pd.DataFrame()
+
+    if frame.empty:
+        return pd.DataFrame()
+
+    frame = frame.set_index("date").sort_index()
+    max_days = _period_to_max_days("5y")
+    if len(frame) > max_days:
+        frame = frame.tail(max_days)
+    return frame
+
 
 
 def _synthetic_history(ticker: str, days: int) -> list[dict]:
@@ -278,15 +327,16 @@ def _synthetic_history(ticker: str, days: int) -> list[dict]:
 def _daily_ohlcv_first_hit(ticker: str, period: str) -> pd.DataFrame:
     """Try providers in order. Stooq-first avoids Yahoo IP blocks (same path for fills + marks)."""
     seq: list[tuple[str, object]] = []
-    if settings.STOOQ_FIRST:
+    if STOOQ_FIRST:
         seq.append(("stooq", lambda: _stooq_daily_sync(ticker)))
     seq.extend(
         [
+            ("finnhub", lambda: _finnhub_daily_sync(ticker, period)),
             ("yahoo_history", lambda: _yahoo_history_dataframe(ticker, period=period)),
             ("yahoo_download", lambda: _yahoo_download_dataframe(ticker, period=period)),
         ]
     )
-    if not settings.STOOQ_FIRST:
+    if not STOOQ_FIRST:
         seq.append(("stooq", lambda: _stooq_daily_sync(ticker)))
     seq.append(("alpha_vantage", lambda: _alpha_vantage_daily_sync(ticker)))
 
@@ -304,7 +354,7 @@ def _fetch_ohlcv_chain(ticker: str, period: str = "2y") -> pd.DataFrame:
 
 def _empty_chain_message(ticker: str) -> str:
     return (
-        f"No real OHLCV returned for {ticker} from Stooq, Yahoo, or Alpha Vantage. "
+        f"No real OHLCV returned for {ticker} from Finnhub, Stooq, Yahoo, or Alpha Vantage. "
         "When markets are closed, providers should still return the last completed session close. "
         "Check API/network configuration, or enable ALLOW_SYNTHETIC_MARKET_DATA=true for offline development."
     )
@@ -317,7 +367,7 @@ def _history_sync(ticker: str, days: int) -> list[dict]:
         df = _daily_ohlcv_first_hit(ticker, period)
 
         if df is None or df.empty:
-            if settings.ALLOW_SYNTHETIC_MARKET_DATA:
+            if ALLOW_SYNTHETIC_MARKET_DATA:
                 return _synthetic_history(ticker, days)
             raise MarketDataUnavailableError(_empty_chain_message(ticker))
 
@@ -331,13 +381,13 @@ def _history_sync(ticker: str, days: int) -> list[dict]:
         if cached_rows:
             return cached_rows
 
-        if settings.ALLOW_SYNTHETIC_MARKET_DATA:
+        if ALLOW_SYNTHETIC_MARKET_DATA:
             return _synthetic_history(ticker, days)
         raise MarketDataUnavailableError(_empty_chain_message(ticker))
     except MarketDataUnavailableError:
         raise
     except Exception as exc:
-        if settings.ALLOW_SYNTHETIC_MARKET_DATA:
+        if ALLOW_SYNTHETIC_MARKET_DATA:
             return _synthetic_history(ticker, days)
         raise MarketDataUnavailableError(_empty_chain_message(ticker)) from exc
 

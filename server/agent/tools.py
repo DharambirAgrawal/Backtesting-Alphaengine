@@ -37,7 +37,7 @@ TOOLS = [
     },
     {
         "name": "get_sentiment_score",
-        "description": "Fetches latest news for ticker, returns sentiment score from -1.0 to 1.0.",
+        "description": "Fetches latest news for ticker, returns sentiment score from -1.0 to 1.0 and recent headlines.",
         "parameters": {
             "ticker": "string",
         },
@@ -80,7 +80,7 @@ async def get_technical_signals_tool(ticker: str) -> dict:
     return await get_technical_signals(ticker=ticker.upper())
 
 
-async def get_sentiment_score_tool(ticker: str) -> float:
+async def get_sentiment_score_tool(ticker: str) -> dict:
     return await get_sentiment_score(ticker=ticker.upper())
 
 

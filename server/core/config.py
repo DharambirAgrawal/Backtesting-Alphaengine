@@ -3,6 +3,18 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Hardcoded System Configurations (Removed from ENV for simplicity)
+STOOQ_FIRST = True
+ALLOW_SYNTHETIC_MARKET_DATA = False
+ALLOW_SYNTHETIC_NEWS = False
+
+# Hardcoded Scheduler Configurations
+AGENT_CRON_ENABLED = True
+AGENT_CRON_DAY_OF_WEEK = "mon-fri"
+AGENT_CRON_HOUR = 9
+AGENT_CRON_MINUTE = 35
+AGENT_CRON_HOURS = "9,12,15"
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -32,20 +44,9 @@ class Settings(BaseSettings):
     # Market data
     ALPHA_VANTAGE_KEY: str | None = None
     NEWS_API_KEY: str | None = None
-    # Ticker search providers (Finnhub is the primary; Alpha Vantage is fallback)
     FINNHUB_API_KEY: str | None = None
-    # OHLCV data providers (separate from search — Stooq works for historical data)
     STOOQ_API_KEY: str | None = None
-    STOOQ_FIRST: bool = True
-    ALLOW_SYNTHETIC_MARKET_DATA: bool = False
-    ALLOW_SYNTHETIC_NEWS: bool = False
 
-    # Scheduler
-    AGENT_CRON_ENABLED: bool = True
-    AGENT_CRON_DAY_OF_WEEK: str = "mon-fri"
-    AGENT_CRON_HOUR: int = 9
-    AGENT_CRON_MINUTE: int = 35
-    AGENT_CRON_HOURS: str | None = "9,12,15"
     MAX_CONCURRENT_AGENT_RUNS: int = 2
     MODEL_RETRAIN_ENABLED: bool = False
     PREDICTION_ACTUALS_BATCH_SIZE: int = 200
@@ -95,10 +96,10 @@ class Settings(BaseSettings):
 
     @property
     def agent_cron_hours(self) -> list[int]:
-        if not self.AGENT_CRON_HOURS:
-            return [self.AGENT_CRON_HOUR]
+        if not AGENT_CRON_HOURS:
+            return [AGENT_CRON_HOUR]
         values: list[int] = []
-        for raw in self.AGENT_CRON_HOURS.split(","):
+        for raw in AGENT_CRON_HOURS.split(","):
             raw = raw.strip()
             if not raw:
                 continue
@@ -108,7 +109,7 @@ class Settings(BaseSettings):
                 continue
             if 0 <= hour <= 23:
                 values.append(hour)
-        return sorted(set(values)) or [self.AGENT_CRON_HOUR]
+        return sorted(set(values)) or [AGENT_CRON_HOUR]
 
     @property
     def max_concurrent_agent_runs(self) -> int:

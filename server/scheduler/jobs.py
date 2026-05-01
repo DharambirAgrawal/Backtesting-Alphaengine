@@ -16,7 +16,12 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 from sqlalchemy import select
 
 from agent.runner import run_agent
-from core.config import settings
+from core.config import (
+    settings,
+    AGENT_CRON_ENABLED,
+    AGENT_CRON_DAY_OF_WEEK,
+    AGENT_CRON_MINUTE,
+)
 from core.database import SessionLocal
 from core.models import Portfolio, PortfolioTicker, PredictionHistory
 from ml.trainer import train_many_tickers
@@ -246,14 +251,14 @@ def start_scheduler() -> None:
     if scheduler.running:
         return
 
-    if settings.AGENT_CRON_ENABLED:
+    if AGENT_CRON_ENABLED:
         for hour in settings.agent_cron_hours:
             scheduler.add_job(
                 run_all_portfolios,
                 trigger=CronTrigger(
-                    day_of_week=settings.AGENT_CRON_DAY_OF_WEEK,
+                    day_of_week=AGENT_CRON_DAY_OF_WEEK,
                     hour=hour,
-                    minute=settings.AGENT_CRON_MINUTE,
+                    minute=AGENT_CRON_MINUTE,
                     timezone=ZoneInfo(settings.MARKET_TIMEZONE),
                 ),
                 kwargs={"session": "scheduled"},

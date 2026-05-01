@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from newsapi import NewsApiClient
 
-from core.config import settings
+from core.config import settings, ALLOW_SYNTHETIC_NEWS
 
 # Real headlines only unless ALLOW_SYNTHETIC_NEWS=true (offline demos).
 
@@ -52,7 +52,7 @@ def _fallback_news(ticker: str, limit: int) -> list[dict]:
 
 def _fetch_news_sync(ticker: str, limit: int) -> list[dict]:
     if not news_client:
-        return _fallback_news(ticker, limit) if settings.ALLOW_SYNTHETIC_NEWS else []
+        return _fallback_news(ticker, limit) if ALLOW_SYNTHETIC_NEWS else []
 
     try:
         payload = news_client.get_everything(
@@ -63,7 +63,7 @@ def _fetch_news_sync(ticker: str, limit: int) -> list[dict]:
         )
         articles = payload.get("articles", [])
         if not articles:
-            return _fallback_news(ticker, limit) if settings.ALLOW_SYNTHETIC_NEWS else []
+            return _fallback_news(ticker, limit) if ALLOW_SYNTHETIC_NEWS else []
 
         rows: list[dict] = []
         for article in articles:
@@ -80,7 +80,7 @@ def _fetch_news_sync(ticker: str, limit: int) -> list[dict]:
 
         return rows
     except Exception:
-        return _fallback_news(ticker, limit) if settings.ALLOW_SYNTHETIC_NEWS else []
+        return _fallback_news(ticker, limit) if ALLOW_SYNTHETIC_NEWS else []
 
 
 async def get_news(ticker: str, limit: int = 5) -> list[dict]:
@@ -99,10 +99,13 @@ def _score_text(text: str) -> float:
     return max(-1.0, min(1.0, score * 5))
 
 
-async def get_sentiment_score(ticker: str) -> float:
+async def get_sentiment_score(ticker: str) -> dict:
     news_items = await get_news(ticker, limit=8)
     if not news_items:
-        return 0.0
+        return {"score": 0.0, "headlines": []}
 
     scores = [_score_text(item.get("title", "")) for item in news_items]
-    return round(sum(scores) / len(scores), 4)
+    avg_score = round(sum(scores) / len(scores), 4)
+    headlines = [item.get("title", "") for item in news_items[:3] if item.get("title")]
+
+    return {"score": avg_score, "headlines": headlines}

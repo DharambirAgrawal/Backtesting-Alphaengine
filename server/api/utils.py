@@ -165,9 +165,13 @@ async def build_holdings_view(
     if not eligible:
         return [], 0.0
 
-    prices = await asyncio.gather(
-        *[_price_for_holding(row.ticker, as_float(row.avg_buy_price)) for row in eligible]
-    )
+    sem = asyncio.Semaphore(3)
+    
+    async def _fetch_with_sem(row):
+        async with sem:
+            return await _price_for_holding(row.ticker, as_float(row.avg_buy_price))
+            
+    prices = await asyncio.gather(*[_fetch_with_sem(row) for row in eligible])
 
     output: list[HoldingOut] = []
     holdings_value = 0.0

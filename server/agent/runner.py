@@ -30,14 +30,15 @@ def _build_reasoning(
     prediction: dict,
     direction: dict,
     technical: dict,
-    sentiment: float,
+    sentiment: dict | float,
     action: str,
 ) -> str:
+    sentiment_score = sentiment.get("score", 0.0) if isinstance(sentiment, dict) else sentiment
     return (
         f"{ticker}: Predicted {prediction.get('predicted_price')} in {prediction.get('horizon_days')}d "
         f"(conf {prediction.get('confidence')}). Direction={direction.get('direction')} "
         f"(p={direction.get('probability')}). RSI={technical.get('rsi')}, "
-        f"MACD={technical.get('macd')}, sentiment={sentiment}. Action={action}."
+        f"MACD={technical.get('macd')}, sentiment={sentiment_score}. Action={action}."
     )
 
 
@@ -125,7 +126,7 @@ async def _llm_hybrid_decision(
     prediction: dict,
     direction: dict,
     technical: dict,
-    sentiment: float,
+    sentiment: dict | float,
     baseline: dict,
 ) -> dict | None:
     mode = settings.AGENT_DECISION_MODE.lower().strip()
@@ -137,12 +138,15 @@ async def _llm_hybrid_decision(
     except Exception:
         return None
 
+    now_time = datetime.now(ZoneInfo(settings.MARKET_TIMEZONE)).strftime("%Y-%m-%d %I:%M %p %Z")
+    
     prompt = f"""
 You are a risk-aware paper-trading assistant.
 Decide one action for a single ticker using both quant signals and baseline rule suggestion.
 Return STRICT JSON only with keys:
 action (BUY|SELL|HOLD), amount_usd (number|null), sell_fraction (number|null), preferred_minutes (int|null), rationale (string).
 
+Current Market Time: {now_time}
 Ticker: {ticker}
 Cash available: {cash}
 Current portfolio total value: {total_value}
@@ -150,7 +154,7 @@ Owned shares: {owned_shares}
 Prediction: {json.dumps(prediction)}
 Direction: {json.dumps(direction)}
 Technical: {json.dumps(technical)}
-Sentiment: {sentiment}
+Sentiment: {json.dumps(sentiment) if isinstance(sentiment, dict) else sentiment}
 Baseline rule decision: {json.dumps(baseline)}
 
 Position sizing guidance:
@@ -375,7 +379,7 @@ async def run_agent(
                     prediction = await _with_retries(predict_price_tool, ticker, horizon_days=3)
                     direction = await _with_retries(classify_direction_tool, ticker)
                     technical = await _with_retries(get_technical_signals_tool, ticker)
-                    sentiment = await _with_retries(get_sentiment_score_tool, ticker)
+                    sentiment_data = await _with_retries(get_sentiment_score_tool, ticker)
                     status = await _with_retries(get_portfolio_status_tool, db, portfolio_id)
                 except Exception as exc:
                     compact = _compact_tool_error(exc)
@@ -397,6 +401,8 @@ async def run_agent(
                     None,
                 )
                 owned_shares = float((matching_holding or {}).get("shares", 0.0))
+                
+                sentiment_score_float = float(sentiment_data.get("score", 0.0))
 
                 baseline = _rule_decision(
                     cash=cash,
@@ -405,7 +411,7 @@ async def run_agent(
                     owned_shares=owned_shares,
                     direction=direction,
                     technical=technical,
-                    sentiment=sentiment,
+                    sentiment=sentiment_score_float,
                 )
                 llm_pick = await _llm_hybrid_decision(
                     ticker=ticker,
@@ -415,7 +421,7 @@ async def run_agent(
                     prediction=prediction,
                     direction=direction,
                     technical=technical,
-                    sentiment=sentiment,
+                    sentiment=sentiment_data,
                     baseline=baseline,
                 )
                 decision = _merge_hybrid_decision(

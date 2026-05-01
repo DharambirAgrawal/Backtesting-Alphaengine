@@ -149,6 +149,9 @@ async def train_many_tickers(db: AsyncSession, tickers: list[str]) -> dict:
             results.append(result)
         except Exception as exc:
             failed.append({"ticker": ticker, "error": str(exc)})
+            
+        # Add a delay between tickers to avoid rate-limiting from market data providers
+        await asyncio.sleep(3.0)
 
     avg_accuracy = 0.0
     if results:
