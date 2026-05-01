@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
 
+import ssl
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -10,10 +12,18 @@ class Base(DeclarativeBase):
     pass
 
 
+# Configure SSL for asyncpg (required for Neon/managed Postgres)
+_connect_args = {}
+if settings.database_url_async.startswith("postgresql+asyncpg://"):
+    _connect_args = {
+        "ssl": ssl.create_default_context(),
+    }
+
 engine = create_async_engine(
     settings.database_url_async,
     echo=not settings.is_production,
     pool_pre_ping=True,
+    connect_args=_connect_args,
 )
 
 SessionLocal = async_sessionmaker(

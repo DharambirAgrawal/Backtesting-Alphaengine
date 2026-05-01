@@ -21,6 +21,28 @@ from data.exceptions import MarketDataUnavailableError
 from data.market_data import get_current_price
 
 
+# Simple in-memory price cache with TTL (5 minutes)
+_price_cache: dict[str, tuple[float, float]] = {}  # {ticker: (price, timestamp_utc_seconds)}
+_PRICE_CACHE_TTL = 300.0  # 5 minutes
+
+
+def _get_cached_price(ticker: str) -> float | None:
+    """Get cached price if exists and not expired."""
+    if ticker not in _price_cache:
+        return None
+    price, ts = _price_cache[ticker]
+    now = datetime.now(timezone.utc).timestamp()
+    if now - ts > _PRICE_CACHE_TTL:
+        del _price_cache[ticker]
+        return None
+    return price
+
+
+def _set_cached_price(ticker: str, price: float) -> None:
+    """Cache a price for 5 minutes."""
+    _price_cache[ticker] = (price, datetime.now(timezone.utc).timestamp())
+
+
 def normalize_ticker(value: str) -> str:
     return value.strip().upper()
 
@@ -109,9 +131,22 @@ async def get_portfolio_tickers(db: AsyncSession, portfolio_id) -> list[str]:
 
 
 async def _price_for_holding(ticker: str, avg_buy: float) -> float:
+    """Fetch current price with caching and timeout. Falls back to avg_buy on failure."""
+    # Check cache first
+    cached = _get_cached_price(ticker)
+    if cached is not None:
+        return cached
+
     try:
-        return await get_current_price(ticker)
-    except MarketDataUnavailableError:
+        # Fetch price with 3-second timeout to avoid slow requests
+        price = await asyncio.wait_for(get_current_price(ticker), timeout=3.0)
+        _set_cached_price(ticker, price)
+        return price
+    except (asyncio.TimeoutError, MarketDataUnavailableError):
+        # On timeout or unavailable, use avg_buy price
+        return avg_buy
+    except Exception:
+        # Any other error, use avg_buy
         return avg_buy
 
 
