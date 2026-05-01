@@ -270,15 +270,11 @@ async def snapshot_portfolio(db: AsyncSession, portfolio_id) -> PortfolioSnapsho
 async def build_performance_stats(
     db: AsyncSession,
     portfolio_id,
-    *,
-    portfolio_out: PortfolioOut | None = None,
 ) -> PerformanceStatsOut:
     portfolio = await db.get(Portfolio, portfolio_id)
     if not portfolio:
         raise ValueError("Portfolio not found")
 
-    if portfolio_out is None:
-        portfolio_out = await build_portfolio_out(db, portfolio)
 
     tx_stmt = (
         select(Transaction)
@@ -362,7 +358,7 @@ async def build_performance_stats(
             sharpe_ratio = float(np.mean(returns) / np.std(returns) * math.sqrt(252))
 
     return PerformanceStatsOut(
-        total_return_pct=round(portfolio_out.profit_loss_pct, 4),
+        total_return_pct=0.0,
         sharpe_ratio=round(sharpe_ratio, 4),
         max_drawdown_pct=round(max_drawdown_pct, 4),
         win_rate=round(win_rate, 4),

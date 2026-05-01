@@ -30,6 +30,19 @@ export default function DashboardPage() {
     }
   }, [isLoading, portfolios, router]);
 
+  if (!isLoading && portfolios.length === 1) {
+    return (
+      <DashboardLayout title="Portfolios">
+        <div className="flex items-center justify-center h-[50vh]">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="h-5 w-5 animate-spin rounded-full border-b-2 border-primary"></div>
+            <span>Loading portfolio...</span>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout title="Portfolios">
       <div className="mx-auto max-w-6xl">

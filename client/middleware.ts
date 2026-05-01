@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/"];
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get("token")?.value;
   const path = request.nextUrl.pathname;
 
   // Allow public paths
-  if (PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`))) {
-    // If logged in and visiting login, redirect to dashboard
-    if (token && path === "/login") {
+  if (PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`) && p !== "/")) {
+    // If logged in and visiting login or root, redirect to dashboard
+    if (token && (path === "/login" || path === "/")) {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
     return NextResponse.next();

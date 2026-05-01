@@ -49,23 +49,26 @@ async def get_dashboard(
     # Fetch all data in parallel for better performance
     holdings_task = asyncio.create_task(build_holdings_view(db, portfolio.id))
     tickers_task = asyncio.create_task(get_portfolio_tickers(db, portfolio.id))
-    performance_task = None  # Will fetch after holdings
     recent_transactions_task = asyncio.create_task(get_recent_transactions(db, portfolio.id, limit=5))
     agent_runs_task = asyncio.create_task(get_agent_runs(db, portfolio.id, limit=10))
 
-    # Wait for initial tasks
+    # performance stats only need the DB history, we can inject total_return_pct later
+    # so we'll modify build_performance_stats to not require portfolio_out right away
+    performance_task = asyncio.create_task(
+        build_performance_stats(db, portfolio.id)
+    )
+
+    # Wait for all tasks
     holdings, holdings_value = await holdings_task
     tickers = await tickers_task
     portfolio_out = _portfolio_out_from_values(portfolio, tickers, holdings_value)
     
-    # Now fetch performance with the portfolio_out we have
-    performance_task = asyncio.create_task(
-        build_performance_stats(db, portfolio.id, portfolio_out=portfolio_out)
-    )
-    
     recent_transactions = await recent_transactions_task
     runs = await agent_runs_task
     performance = await performance_task
+
+    # Inject the accurate real-time return
+    performance.total_return_pct = round(portfolio_out.profit_loss_pct, 4)
 
     next_run_dt = (
         get_next_run_time_for_portfolio(str(portfolio.id)) if portfolio.is_active else None
