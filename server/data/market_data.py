@@ -103,6 +103,7 @@ def _stooq_daily_sync(ticker: str) -> pd.DataFrame:
     """Daily OHLCV CSV from Stooq. Requires STOOQ_API_KEY (free, get from stooq.com)."""
     key = settings.STOOQ_API_KEY
     if not key:
+        logging.warning("STOOQ_API_KEY is not set. Skipping Stooq.")
         return pd.DataFrame()
 
     base_sym = ticker.strip().upper().replace("/", ".").lower()
@@ -192,6 +193,7 @@ def _rows_from_ohlcv(frame: pd.DataFrame, days: int) -> list[dict]:
 def _alpha_vantage_daily_sync(ticker: str) -> pd.DataFrame:
     key = settings.ALPHA_VANTAGE_KEY
     if not key:
+        logging.warning("ALPHA_VANTAGE_KEY is not set. Skipping Alpha Vantage.")
         return pd.DataFrame()
 
     url = "https://www.alphavantage.co/query"
@@ -278,6 +280,7 @@ def _alpha_vantage_daily_sync(ticker: str) -> pd.DataFrame:
 def _finnhub_daily_sync(ticker: str, period: str) -> pd.DataFrame:
     key = settings.FINNHUB_API_KEY
     if not key:
+        logging.warning("FINNHUB_API_KEY is not set. Skipping Finnhub.")
         return pd.DataFrame()
 
     days = _period_to_max_days(period)
@@ -376,7 +379,7 @@ def _daily_ohlcv_first_hit(ticker: str, period: str) -> pd.DataFrame:
                 _cache_put_ohlcv(ticker, df)
                 return df
         except Exception as exc:
-            logging.debug(f"Provider {name} failed for {ticker}: {exc}")
+            logging.warning(f"Provider {name} failed for {ticker}: {exc}")
     return _cache_get_ohlcv(ticker)
 
 
