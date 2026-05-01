@@ -13,7 +13,7 @@ export function useDashboard(portfolioId: string | null) {
       revalidateOnFocus: false,
       refreshInterval: 60000, // Poll every 60s when tab is visible
       refreshWhenHidden: false,
-      dedupingInterval: 5000,
+      dedupingInterval: 10000, // Increased from 5s to 10s to prevent duplicate requests
     }
   );
 
@@ -35,7 +35,7 @@ export function useChartData(
     {
       revalidateOnFocus: false,
       keepPreviousData: true,
-      dedupingInterval: 5000,
+      dedupingInterval: 10000, // Increased from 5s to 10s
     }
   );
 
