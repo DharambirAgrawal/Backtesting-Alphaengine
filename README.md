@@ -1,95 +1,130 @@
 # AlphaEngine
 
-**AlphaEngine** is a paper-trading platform: you run virtual portfolios with real market data, optional ML models (LSTM + XGBoost), and an automated agent that can buy and sell **without real money**. It is built for learning quant workflows, testing ideas, and seeing full decision traces—not for live brokerage execution.
+AlphaEngine is an end-to-end paper-trading platform with a FastAPI backend and Next.js dashboard.
+It combines real market data, ML model training, and an automated portfolio agent so you can test ideas without risking capital.
 
-Live demo (when deployed): [alphaenginestock.vercel.app](https://alphaenginestock.vercel.app) (login required).
+Live demo: [alphaenginestock.vercel.app](https://alphaenginestock.vercel.app)
 
----
+<p align="center">
+   <img src="./dashboard.png" alt="AlphaEngine dashboard" width="100%" />
+</p>
 
-## What it does
+## Highlights
 
-1. **Portfolios** — Create one or more portfolios with a starting cash balance and a list of **valid stock tickers** (e.g. `AAPL`, `GOOGL`, not company names like `AMAZON`).
-2. **Market data** — Prices and history come from real providers (Stooq with API key, Yahoo when available, Alpha Vantage as fallback). After the US session closes, you still get the **last completed session’s** daily prices—there is no need for the exchange to be open for the app to value positions.
-3. **Models** — For each ticker you can train **two** model types stored in the **global model registry** (shared across portfolios that use the same ticker):
-   - **LSTM** — sequence model on technical features; used in price-style signals.
-   - **XGBoost** — classifier for short-horizon **up / down** direction on held-out data.
-4. **Agent** — On a schedule (or when you click **Run Now**), the agent evaluates each portfolio ticker and may place **BUY / SELL / HOLD** paper trades. Trades and reasoning are stored for the dashboard.
-5. **Dashboard** — Portfolio value, cash vs holdings, holdings table, recent trades, charts from snapshots, and **next scheduled agent run** (when the backend scheduler is enabled).
+- Paper portfolios with cash, holdings, transaction history, and performance tracking
+- Real market data pipeline with provider fallback support
+- Global model registry per ticker (LSTM + XGBoost coverage)
+- Scheduled and manual agent runs with BUY / SELL / HOLD decisions
+- Dashboard with portfolio value chart, holdings, and recent trades
+- Admin workflows for user and model operations
 
----
+## Architecture
 
-## Global Model Registry (what you see in the UI)
+- Frontend: Next.js 16, React 19, TypeScript, Tailwind CSS, React Query
+- Backend: FastAPI, SQLAlchemy (async), APScheduler
+- ML: XGBoost, scikit-learn, TA features, optional LLM-assisted decisions
+- Storage: Postgres + Supabase model artifact bucket
+- Deploy targets: Vercel (client) + Render (server)
 
-The **Global Model Registry** page answers one question: *for every ticker any portfolio depends on, do we have trained LSTM and XGBoost rows ready?*
+## Repository Structure
 
-- **Tracked tickers** — Distinct symbols listed on portfolios.
-- **Coverage** — For each ticker, whether both `lstm` and `xgboost` exist in `ModelRegistry`.
-- **Retrain all** — Retrains all tracked tickers (can take a while; depends on host CPU and data providers).
-- **Per-ticker retrain** — Retrains that symbol only.
+| Path | Purpose |
+|---|---|
+| `client/` | Next.js app (UI, dashboard, admin, API proxy routes) |
+| `server/` | FastAPI app (auth, portfolios, trades, models, agent, scheduler) |
+| `server/scripts/` | Database bootstrap and migration SQL scripts |
+| `render.yaml` | Render blueprint for backend service |
+| `IDEA.md` | Product and vision notes |
 
-Models are **global per ticker**, not per portfolio: if two portfolios both hold `NVDA`, they share the same registry entry for `NVDA`.
+## Quick Start
 
-### Why accuracy often looks ~50–55%
+### 1. Run the backend
 
-The XGBoost metric is **out-of-sample accuracy** on **next-day up vs down** from daily bars. That task is **hard**; many published baselines sit barely above 50%. Seeing **~50–54%** is therefore **not automatically “broken”**—it often means the model is near noise for that split. Improving it usually means richer features, different horizons, regime filters, or more careful validation—not a single magic number.
+From the repository root:
 
----
+```bash
+cd server
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install --index-url https://download.pytorch.org/whl/cpu torch==2.3.0
+cp .env.example .env
+```
 
-## How to use it (quick path)
+Set required environment variables in `.env`:
 
-### 1. Backend (FastAPI)
+- `DATABASE_URL`
+- `JWT_SECRET` (minimum 32 chars)
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
 
-See `server/README.md` for install, env vars, DB seed, and run commands.
+Initialize and seed:
 
-Important env vars (see `server/.env.example`):
+```bash
+python scripts/init_db.py
+python scripts/seed_admin.py
+```
 
-- **Auth / DB** — `JWT_SECRET`, `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`
-- **Market** — `STOOQ_API_KEY`, optional `ALPHA_VANTAGE_KEY`, `STOOQ_FIRST`
-- **Model files** — `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_BUCKET`
-- **Render wake-ups** — `RENDER_EXTERNAL_URL` so scheduled keep-alive hits your public `/health`
-- **Agent schedule** — `AGENT_CRON_ENABLED`, `AGENT_CRON_DAY_OF_WEEK`, `AGENT_CRON_HOUR`, `AGENT_CRON_MINUTE` (defaults: weekdays **9:35** in `MARKET_TIMEZONE`)
+Start API:
 
-### 2. Frontend (Next.js)
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-See `client/README.md` if present; otherwise:
+Backend health: `http://localhost:8000/health`
 
-- Set **`NEXT_PUBLIC_API_URL`** on Vercel to your **backend** base URL (the Next app proxies `/api/v1/*` to the backend).
-- Deploy; open the site, log in, create a portfolio with **real tickers**, open **Model Registry**, retrain if needed, then open a portfolio dashboard.
+### 2. Run the frontend
 
-### 3. Ticker search
+In a new terminal:
 
-Search prefers Yahoo, then Alpha Vantage **SYMBOL_SEARCH**. Pick the **symbol** from the dropdown (e.g. Google → `GOOGL`). Long uppercase words alone are **not** accepted as manual symbols to avoid storing `AMAZON` instead of `AMZN`.
+```bash
+cd client
+pnpm install
+NEXT_PUBLIC_API_URL=http://localhost:8000 pnpm dev
+```
 
----
+Frontend app: `http://localhost:3000`
 
-## Agent schedule: “Next run in 12h …” — is it only once per day?
+## Configuration Notes
 
-**By default, yes:** the in-process scheduler runs the agent **once per US trading weekday** at the time you configure (`AGENT_CRON_HOUR` / `AGENT_CRON_MINUTE` in `MARKET_TIMEZONE`). The UI countdown is the time until that **next cron** fire.
+### Core backend env vars
 
-You can always:
+- Auth + DB: `DATABASE_URL`, `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`
+- Market/news providers: `STOOQ_API_KEY`, `FINNHUB_API_KEY`, `ALPHA_VANTAGE_KEY`, `NEWS_API_KEY`
+- Agent mode: `AGENT_DECISION_MODE` (`rules`, `hybrid`, `gemini`)
+- Model artifacts: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_BUCKET`
+- Scheduler: `AGENT_CRON_ENABLED`, `AGENT_CRON_DAY_OF_WEEK`, `AGENT_CRON_MINUTE`, `AGENT_CRON_HOURS`, `MARKET_TIMEZONE`
+- Hosting keep-alive: `RENDER_EXTERNAL_URL`
 
-- Click **Run Now** for an immediate run (does not replace the cron; it adds a manual run).
-- Set `AGENT_CRON_ENABLED=false` on the server if you only want manual runs.
+### Scheduler behavior
 
-**Note:** On free-tier hosts, the service may **sleep**. In-process crons only run while the process is awake; use `RENDER_EXTERNAL_URL` + keep-alive or an external cron hitting your API if you need reliability without upgrading.
+The backend supports multi-run trading-day scheduling using `AGENT_CRON_HOURS` (default: `9,12,15`) and manual Run Now actions from the dashboard.
+If your host sleeps on idle, in-process schedules only execute while the service is awake.
 
----
+## Typical Workflow
 
-## Repo layout
+1. Log in with seeded admin credentials
+2. Create a portfolio with valid ticker symbols
+3. Open the models section and retrain tracked tickers if needed
+4. Run the agent manually or wait for the next scheduled run
+5. Inspect holdings, transactions, and value/performance charts
 
-| Path | Role |
-|------|------|
-| `server/` | FastAPI API, ML training, agent, scheduler |
-| `client/` | Next.js dashboard |
-| `IDEA.md` | Original product vision and stack notes |
-| `render.yaml` | Example Render Docker blueprint |
+## API Surface (High-Level)
 
----
+- `/api/v1/auth/*` for login and session checks
+- `/api/v1/portfolios/*` for portfolio management
+- `/api/v1/trades/*` and dashboard endpoints for analytics/history
+- `/api/v1/models/*` for model training and registry operations
+- `/api/v1/agent/*` for agent orchestration
 
-## Contributing / support
+See backend implementation details in `server/README.md`.
 
-Open issues with: host (Render/Railway/local), whether `STOOQ_API_KEY` and DB are set, and one failing request path (e.g. `GET /api/v1/dashboard/{id}`). That keeps debugging fast.
+## Deployment
 
----
+- Frontend: Deploy `client/` to Vercel and set `NEXT_PUBLIC_API_URL` to backend URL
+- Backend: Deploy `server/` (Docker) on Render, using `render.yaml` as a starting point
+- Ensure production secrets are configured in host dashboards
 
-*Paper trading only. Not financial advice.*
+## Disclaimer
+
+Paper trading only. This project is for simulation and education, not financial advice.

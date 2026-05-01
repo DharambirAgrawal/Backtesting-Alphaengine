@@ -31,7 +31,11 @@ import {
 import { toast } from "sonner";
 
 export default function GlobalModelsPage() {
-  const { overview, isLoading: isOverviewLoading } = useModelsOverview();
+  const {
+    overview,
+    isLoading: isOverviewLoading,
+    refresh: refreshOverview,
+  } = useModelsOverview();
   const trackedTickers = overview?.coverage.map((item) => item.ticker) ?? [];
   const {
     models,
@@ -40,32 +44,63 @@ export default function GlobalModelsPage() {
     retrainAllModels,
     isRetraining,
     isAnyRetraining,
+    refresh: refreshModels,
   } = useModels({ trackedTickers });
 
   const [accuracyView, setAccuracyView] = useState<{
     ticker: string;
     modelType: string;
   } | null>(null);
+  const [lastRetrainFailures, setLastRetrainFailures] = useState<
+    Record<string, string>
+  >({});
 
   const handleRetrain = async (ticker: string) => {
     try {
       await retrain(ticker);
+      await refreshOverview();
+      setLastRetrainFailures((prev) => {
+        const next = { ...prev };
+        delete next[ticker.toUpperCase()];
+        return next;
+      });
       toast.success(`Retraining ${ticker}`, {
         description: "Refreshing both LSTM and XGBoost models.",
       });
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Please try again.";
+      setLastRetrainFailures((prev) => ({
+        ...prev,
+        [ticker.toUpperCase()]: message,
+      }));
       toast.error("Failed to retrain model", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
+        description: message,
       });
     }
   };
 
   const handleRetrainAll = async () => {
     try {
-      await retrainAllModels();
+      const result = await retrainAllModels();
+      await Promise.all([refreshModels(), refreshOverview()]);
+
+      const failureMap = Object.fromEntries(
+        result.failed.map((item) => [item.ticker.toUpperCase(), item.error])
+      );
+      setLastRetrainFailures(failureMap);
+
+      if (result.failed_count > 0) {
+        const failedTickers = result.failed.map((item) => item.ticker).join(", ");
+        toast.error(`Retrain completed with ${result.failed_count} failure(s)`, {
+          description: failedTickers,
+        });
+        return;
+      }
+
+      setLastRetrainFailures({});
       toast.success("Retraining all tracked models", {
-        description: "This refreshes every ticker referenced by a portfolio.",
+        description: `${result.trained_count} ticker(s) trained successfully.`,
       });
     } catch (error) {
       toast.error("Failed to start retraining", {
@@ -172,7 +207,9 @@ export default function GlobalModelsPage() {
               </EmptyState>
             ) : (
               <div className="space-y-3">
-                {overview.coverage.map((item) => (
+                {overview.coverage.map((item) => {
+                  const tickerError = lastRetrainFailures[item.ticker];
+                  return (
                   <div
                     key={item.ticker}
                     className="rounded-xl border border-border/60 bg-background/60 p-4"
@@ -233,6 +270,35 @@ export default function GlobalModelsPage() {
                             </Badge>
                           ))}
                         </div>
+
+                        {tickerError ? (
+                          <p className="text-sm text-loss">
+                            Last retrain error: {tickerError}
+                          </p>
+                        ) : null}
+
+                        {!item.is_fully_trained ? (
+                          <div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={isRetraining(item.ticker)}
+                              onClick={() => handleRetrain(item.ticker)}
+                            >
+                              {isRetraining(item.ticker) ? (
+                                <>
+                                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                  Retrying...
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="h-3.5 w-3.5" />
+                                  Retry This Ticker
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="text-sm text-muted-foreground">
@@ -247,7 +313,8 @@ export default function GlobalModelsPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

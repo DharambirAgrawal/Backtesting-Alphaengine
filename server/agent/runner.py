@@ -41,6 +41,13 @@ def _build_reasoning(
     )
 
 
+def _compact_tool_error(exc: Exception) -> str:
+    message = str(exc).replace("**", "")
+    if "No real OHLCV returned for" in message:
+        return "market data unavailable from providers"
+    return message
+
+
 def _market_today() -> date:
     return datetime.now(ZoneInfo(settings.MARKET_TIMEZONE)).date()
 
@@ -371,12 +378,13 @@ async def run_agent(
                     sentiment = await _with_retries(get_sentiment_score_tool, ticker)
                     status = await _with_retries(get_portfolio_status_tool, db, portfolio_id)
                 except Exception as exc:
-                    summary_lines.append(f"{ticker}: skipped due to tool error ({exc}).")
+                    compact = _compact_tool_error(exc)
+                    summary_lines.append(f"{ticker}: skipped due to tool error ({compact}).")
                     per_ticker_decisions.append(
                         {
                             "ticker": ticker,
                             "action": "HOLD",
-                            "rationale": f"Skipped due to tool error: {exc}",
+                            "rationale": f"Skipped due to tool error: {compact}",
                             "tools_called": {},
                         }
                     )

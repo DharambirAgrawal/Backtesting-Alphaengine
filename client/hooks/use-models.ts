@@ -9,7 +9,7 @@ import {
   retrainAll,
   getModelAccuracy,
 } from "@/lib/api";
-import type { MLModel, ModelsOverview } from "@/lib/types";
+import type { MLModel, ModelRetrainAllResult, ModelsOverview } from "@/lib/types";
 
 interface UseModelsOptions {
   portfolioId?: string;
@@ -41,37 +41,12 @@ export function useModels(options: UseModelsOptions = {}) {
 
       try {
         await trainTicker(ticker);
-
-        // Poll every 3s up to 90s, check if trained_at updated
-        const originalTrainedAt = data
-          ?.filter((m) => m.ticker === ticker)
-          .map((m) => m.trained_at);
-
-        let elapsed = 0;
-        const poll = setInterval(async () => {
-          elapsed += 3000;
-          try {
-            const latest = await getModels({ portfolioId });
-            const tickerModels = latest.filter((m) => m.ticker === ticker);
-            const updated = tickerModels.some(
-              (m, idx) =>
-                !originalTrainedAt ||
-                m.trained_at !== originalTrainedAt[idx]
-            );
-
-            if (updated || elapsed >= 90000) {
-              clearInterval(poll);
-              setRetrainingTickers((prev) => {
-                const next = new Set(prev);
-                next.delete(ticker);
-                return next;
-              });
-              mutate();
-            }
-          } catch {
-            // keep polling until timeout
-          }
-        }, 3000);
+        await mutate();
+        setRetrainingTickers((prev) => {
+          const next = new Set(prev);
+          next.delete(ticker);
+          return next;
+        });
       } catch (error) {
         setRetrainingTickers((prev) => {
           const next = new Set(prev);
@@ -88,7 +63,7 @@ export function useModels(options: UseModelsOptions = {}) {
    * Retrain every active model in the portfolio.
    * Backend endpoint: POST /models/retrain-all
    */
-  const retrainAllModels = useCallback(async () => {
+  const retrainAllModels = useCallback(async (): Promise<ModelRetrainAllResult> => {
     const tickers = Array.from(
       new Set(
         (trackedTickers && trackedTickers.length > 0
@@ -100,18 +75,10 @@ export function useModels(options: UseModelsOptions = {}) {
     setRetrainingTickers(new Set(tickers));
 
     try {
-      await retrainAll(portfolioId);
-
-      // Poll every 5s up to 180s for refresh
-      let elapsed = 0;
-      const poll = setInterval(async () => {
-        elapsed += 5000;
-        await mutate();
-        if (elapsed >= 180000) {
-          clearInterval(poll);
-          setRetrainingTickers(new Set());
-        }
-      }, 5000);
+      const result = await retrainAll(portfolioId);
+      await mutate();
+      setRetrainingTickers(new Set());
+      return result;
     } catch (error) {
       setRetrainingTickers(new Set());
       throw error;

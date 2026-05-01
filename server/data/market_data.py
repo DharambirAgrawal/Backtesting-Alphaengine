@@ -16,6 +16,11 @@ for _log in ("yfinance", "yfinance.base", "yfinance.ticker", "yfinance.scrapers"
     logging.getLogger(_log).setLevel(logging.ERROR)
 
 
+_OHLCV_CACHE_MAX_AGE = timedelta(days=14)
+_OHLCV_CACHE: dict[str, pd.DataFrame] = {}
+_OHLCV_CACHE_UPDATED_AT: dict[str, datetime] = {}
+
+
 def _fallback_price(ticker: str) -> float:
     seed = abs(hash(ticker.upper())) % 400
     return round(50 + seed + (datetime.now(timezone.utc).timetuple().tm_yday % 17), 2)
@@ -100,45 +105,88 @@ def _stooq_daily_sync(ticker: str) -> pd.DataFrame:
     if not key:
         return pd.DataFrame()
 
-    raw_sym = ticker.strip().upper().replace("/", ".")
-    if "." not in raw_sym:
-        raw_sym = f"{raw_sym.lower()}.us"
-    else:
-        raw_sym = raw_sym.lower()
-    url = f"https://stooq.com/q/d/l/?s={raw_sym}&i=d&apikey={key}"
-    try:
-        df = pd.read_csv(url)
-    except Exception:
-        return pd.DataFrame()
+    base_sym = ticker.strip().upper().replace("/", ".").lower()
+    candidates = [base_sym]
+    if "." not in base_sym:
+        candidates = [f"{base_sym}.us", base_sym]
 
-    if df is None or df.empty:
-        return pd.DataFrame()
+    for symbol in candidates:
+        url = f"https://stooq.com/q/d/l/?s={symbol}&i=d&apikey={key}"
+        try:
+            df = pd.read_csv(url)
+        except Exception:
+            continue
 
-    df.columns = [str(c).strip().lower() for c in df.columns]
-    required = {"date", "open", "high", "low", "close"}
-    if not required.issubset(df.columns):
-        return pd.DataFrame()
+        if df is None or df.empty:
+            continue
 
-    vol_series = (
-        pd.to_numeric(df["volume"], errors="coerce").fillna(0.0)
-        if "volume" in df.columns
-        else pd.Series(0.0, index=df.index)
-    )
-    frame = pd.DataFrame(
-        {
-            "open": pd.to_numeric(df["open"], errors="coerce"),
-            "high": pd.to_numeric(df["high"], errors="coerce"),
-            "low": pd.to_numeric(df["low"], errors="coerce"),
-            "close": pd.to_numeric(df["close"], errors="coerce"),
-            "volume": vol_series,
-        }
-    )
-    frame.index = pd.to_datetime(df["date"], utc=True)
-    frame = frame.sort_index().dropna(subset=["close"])
-    max_days = _period_to_max_days("5y")
-    if len(frame) > max_days:
-        frame = frame.tail(max_days)
-    return frame
+        df.columns = [str(c).strip().lower() for c in df.columns]
+        required = {"date", "open", "high", "low", "close"}
+        if not required.issubset(df.columns):
+            continue
+
+        vol_series = (
+            pd.to_numeric(df["volume"], errors="coerce").fillna(0.0)
+            if "volume" in df.columns
+            else pd.Series(0.0, index=df.index)
+        )
+        frame = pd.DataFrame(
+            {
+                "open": pd.to_numeric(df["open"], errors="coerce"),
+                "high": pd.to_numeric(df["high"], errors="coerce"),
+                "low": pd.to_numeric(df["low"], errors="coerce"),
+                "close": pd.to_numeric(df["close"], errors="coerce"),
+                "volume": vol_series,
+            }
+        )
+        frame.index = pd.to_datetime(df["date"], utc=True)
+        frame = frame.sort_index().dropna(subset=["close"])
+        max_days = _period_to_max_days("5y")
+        if len(frame) > max_days:
+            frame = frame.tail(max_days)
+        if not frame.empty:
+            return frame
+
+    return pd.DataFrame()
+
+
+def _cache_put_ohlcv(ticker: str, frame: pd.DataFrame) -> None:
+    if frame is None or frame.empty:
+        return
+    symbol = ticker.upper().strip()
+    _OHLCV_CACHE[symbol] = frame.tail(_period_to_max_days("5y")).copy()
+    _OHLCV_CACHE_UPDATED_AT[symbol] = datetime.now(timezone.utc)
+
+
+def _cache_get_ohlcv(ticker: str) -> pd.DataFrame:
+    symbol = ticker.upper().strip()
+    updated_at = _OHLCV_CACHE_UPDATED_AT.get(symbol)
+    frame = _OHLCV_CACHE.get(symbol)
+    if not updated_at or frame is None or frame.empty:
+        return pd.DataFrame()
+    if datetime.now(timezone.utc) - updated_at > _OHLCV_CACHE_MAX_AGE:
+        _OHLCV_CACHE.pop(symbol, None)
+        _OHLCV_CACHE_UPDATED_AT.pop(symbol, None)
+        return pd.DataFrame()
+    return frame.copy()
+
+
+def _rows_from_ohlcv(frame: pd.DataFrame, days: int) -> list[dict]:
+    trimmed = frame.tail(days)
+    rows: list[dict] = []
+    for idx, row in trimmed.iterrows():
+        ts = pd.Timestamp(idx)
+        rows.append(
+            {
+                "date": ts.date().isoformat(),
+                "open": float(row.get("open", row.get("Open", 0.0))),
+                "high": float(row.get("high", row.get("High", 0.0))),
+                "low": float(row.get("low", row.get("Low", 0.0))),
+                "close": float(row.get("close", row.get("Close", 0.0))),
+                "volume": float(row.get("volume", row.get("Volume", 0.0))),
+            }
+        )
+    return rows
 
 
 def _alpha_vantage_daily_sync(ticker: str) -> pd.DataFrame:
@@ -245,8 +293,9 @@ def _daily_ohlcv_first_hit(ticker: str, period: str) -> pd.DataFrame:
     for _, fn in seq:
         df = fn()
         if df is not None and not df.empty:
+            _cache_put_ohlcv(ticker, df)
             return df
-    return pd.DataFrame()
+    return _cache_get_ohlcv(ticker)
 
 
 def _fetch_ohlcv_chain(ticker: str, period: str = "2y") -> pd.DataFrame:
@@ -256,9 +305,8 @@ def _fetch_ohlcv_chain(ticker: str, period: str = "2y") -> pd.DataFrame:
 def _empty_chain_message(ticker: str) -> str:
     return (
         f"No real OHLCV returned for {ticker} from Stooq, Yahoo, or Alpha Vantage. "
-        "When the US cash equity session is closed or on holidays, daily feeds still "
-        "expose the **last completed session** close — fix network/API access or set "
-        "ALLOW_SYNTHETIC_MARKET_DATA=true only for offline dev."
+        "When markets are closed, providers should still return the last completed session close. "
+        "Check API/network configuration, or enable ALLOW_SYNTHETIC_MARKET_DATA=true for offline development."
     )
 
 
@@ -273,24 +321,16 @@ def _history_sync(ticker: str, days: int) -> list[dict]:
                 return _synthetic_history(ticker, days)
             raise MarketDataUnavailableError(_empty_chain_message(ticker))
 
-        df = df.tail(days)
-        rows: list[dict] = []
-
-        for idx, row in df.iterrows():
-            ts = pd.Timestamp(idx)
-            rows.append(
-                {
-                    "date": ts.date().isoformat(),
-                    "open": float(row.get("open", row.get("Open", 0.0))),
-                    "high": float(row.get("high", row.get("High", 0.0))),
-                    "low": float(row.get("low", row.get("Low", 0.0))),
-                    "close": float(row.get("close", row.get("Close", 0.0))),
-                    "volume": float(row.get("volume", row.get("Volume", 0.0))),
-                }
-            )
+        rows = _rows_from_ohlcv(df, days)
 
         if rows:
             return rows
+
+        cached = _cache_get_ohlcv(ticker)
+        cached_rows = _rows_from_ohlcv(cached, days)
+        if cached_rows:
+            return cached_rows
+
         if settings.ALLOW_SYNTHETIC_MARKET_DATA:
             return _synthetic_history(ticker, days)
         raise MarketDataUnavailableError(_empty_chain_message(ticker))
@@ -343,7 +383,11 @@ async def get_price_snapshot(ticker: str) -> dict:
 
 
 def _ohlcv_sync(ticker: str, period: str = "2y") -> pd.DataFrame:
-    return _fetch_ohlcv_chain(ticker, period=period)
+    frame = _fetch_ohlcv_chain(ticker, period=period)
+    if frame is not None and not frame.empty:
+        _cache_put_ohlcv(ticker, frame)
+        return frame
+    return _cache_get_ohlcv(ticker)
 
 
 async def get_ohlcv_dataframe(ticker: str, period: str = "2y") -> pd.DataFrame:

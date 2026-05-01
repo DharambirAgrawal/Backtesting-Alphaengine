@@ -10,6 +10,7 @@ import type {
   MessageResponse,
   MLModel,
   ModelsOverview,
+  ModelRetrainAllResult,
   ModelAccuracyData,
   PaginatedTransactions,
   Portfolio,
@@ -221,7 +222,7 @@ export async function retrainAll(portfolioId?: string) {
     params.set("portfolio_id", portfolioId);
   }
 
-  return request<MessageResponse>(
+  return request<ModelRetrainAllResult>(
     `/models/retrain-all${params.size ? `?${params.toString()}` : ""}`,
     {
       method: "POST",

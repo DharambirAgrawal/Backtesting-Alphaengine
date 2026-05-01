@@ -28,6 +28,14 @@ interface RunDetailModalProps {
   onClose: () => void;
 }
 
+function summaryLines(summary: string | null | undefined): string[] {
+  if (!summary) return [];
+  return summary
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function formatSession(value: string | null) {
   if (!value) return "Unknown";
   return value
@@ -56,9 +64,9 @@ export function RunDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-w-4xl bg-card border-border">
-        <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-3">
+      <DialogContent className="max-h-[90vh] max-w-5xl overflow-hidden border-border bg-card p-0">
+        <DialogHeader className="border-b border-border/50 px-6 py-4">
+          <DialogTitle className="flex flex-wrap items-center gap-3 pr-8">
             <span>Agent Run</span>
             <Badge variant="outline" className="font-mono">
               {formatSession(headerRun.session)}
@@ -69,18 +77,19 @@ export function RunDetailModal({
           </DialogTitle>
         </DialogHeader>
 
-        {isLoading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
-          </div>
-        ) : !run ? (
-          <div className="rounded-lg border border-border/50 bg-secondary/20 p-4 text-sm text-muted-foreground">
-            Run details are unavailable.
-          </div>
-        ) : (
-          <div className="space-y-6">
+        <div className="max-h-[calc(90vh-88px)] overflow-y-auto px-6 py-5">
+          {isLoading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          ) : !run ? (
+            <div className="rounded-lg border border-border/50 bg-secondary/20 p-4 text-sm text-muted-foreground">
+              Run details are unavailable.
+            </div>
+          ) : (
+            <div className="space-y-6 pb-1">
             <div className="grid gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-border/50 bg-secondary/20 p-3">
                 <div className="text-xs text-muted-foreground">Status</div>
@@ -108,9 +117,21 @@ export function RunDetailModal({
 
             <div>
               <div className="mb-2 text-sm font-medium text-foreground">Summary</div>
-              <div className="rounded-lg border border-border/50 bg-secondary/20 p-4 text-sm text-muted-foreground whitespace-pre-wrap">
-                {run.summary || "No summary recorded."}
-              </div>
+              {summaryLines(run.summary).length > 0 ? (
+                <div className="rounded-lg border border-border/50 bg-secondary/20 p-4">
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    {summaryLines(run.summary).map((line, index) => (
+                      <li key={index} className="wrap-break-word">
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-border/50 bg-secondary/20 p-4 text-sm text-muted-foreground">
+                  No summary recorded.
+                </div>
+              )}
             </div>
 
             <div>
@@ -158,7 +179,7 @@ export function RunDetailModal({
                             <Bot className="h-4 w-4 text-primary" />
                             LLM Rationale
                           </div>
-                          <div className="rounded-lg border border-border/50 bg-secondary/20 p-4 text-sm text-muted-foreground whitespace-pre-wrap">
+                          <div className="rounded-lg border border-border/50 bg-secondary/20 p-4 text-sm text-muted-foreground whitespace-pre-wrap wrap-break-word">
                             {item.llm_reasoning || item.summary_line || "No rationale recorded."}
                           </div>
                         </div>
@@ -169,7 +190,7 @@ export function RunDetailModal({
                             Tools Called
                           </div>
                           <div className="rounded-lg border border-border/50 bg-secondary/20 p-4">
-                            <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                            <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word text-xs text-muted-foreground">
                               {Object.keys(item.tools_called).length > 0
                                 ? JSON.stringify(item.tools_called, null, 2)
                                 : "No structured tool payload recorded."}
@@ -182,8 +203,9 @@ export function RunDetailModal({
                 </Accordion>
               )}
             </div>
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

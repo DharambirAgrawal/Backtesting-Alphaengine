@@ -180,3 +180,16 @@ export interface TransactionFilters {
 export interface MessageResponse {
   message: string;
 }
+
+export interface ModelRetrainFailure {
+  ticker: string;
+  error: string;
+}
+
+export interface ModelRetrainAllResult {
+  message: string;
+  total_tickers: number;
+  trained_count: number;
+  failed_count: number;
+  failed: ModelRetrainFailure[];
+}

@@ -215,6 +215,19 @@ class ModelOverviewOut(APIModel):
     coverage: list[ModelCoverageTickerOut]
 
 
+class ModelRetrainFailureOut(APIModel):
+    ticker: str
+    error: str
+
+
+class ModelRetrainAllOut(APIModel):
+    message: str
+    total_tickers: int
+    trained_count: int
+    failed_count: int
+    failed: list[ModelRetrainFailureOut]
+
+
 class TickerSearchResultOut(APIModel):
     ticker: str
     name: str

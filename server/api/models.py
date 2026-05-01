@@ -12,6 +12,7 @@ from core.schemas import (
     MessageResponse,
     ModelAccuracyOut,
     ModelCoverageTickerOut,
+    ModelRetrainAllOut,
     ModelOut,
     ModelOverviewOut,
     ModelOverviewSummaryOut,
@@ -230,7 +231,7 @@ async def train_model(
     return MessageResponse(message=f"Training completed for {symbol}")
 
 
-@router.post("/models/retrain-all", response_model=MessageResponse)
+@router.post("/models/retrain-all", response_model=ModelRetrainAllOut)
 async def retrain_all_models(
     request: Request,
     portfolio_id: str | None = Query(default=None),
@@ -239,11 +240,26 @@ async def retrain_all_models(
 ):
     tickers = await _get_scoped_tickers(db, request, portfolio_id)
 
+    trained_count = 0
+    failed: list[dict] = []
     if tickers:
-        await train_many_tickers(db, tickers)
+        result = await train_many_tickers(db, tickers)
+        trained_count = len(result.get("trained", []))
+        failed = result.get("failed", [])
 
     scope = "portfolio" if portfolio_id else "tracked"
-    return MessageResponse(message=f"Retraining completed for {len(tickers)} {scope} ticker(s)")
+    failed_count = len(failed)
+    message = (
+        f"Retraining finished for {len(tickers)} {scope} ticker(s): "
+        f"{trained_count} succeeded, {failed_count} failed"
+    )
+    return ModelRetrainAllOut(
+        message=message,
+        total_tickers=len(tickers),
+        trained_count=trained_count,
+        failed_count=failed_count,
+        failed=failed,
+    )
 
 
 @router.get("/models/{ticker}/accuracy", response_model=ModelAccuracyOut)
