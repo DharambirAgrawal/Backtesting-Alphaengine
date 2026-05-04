@@ -10,6 +10,7 @@ import { ValueChart } from "@/components/dashboard/value-chart";
 import { HoldingsTable } from "@/components/dashboard/holdings-table";
 import { RecentTrades } from "@/components/dashboard/recent-trades";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboard, useChartData } from "@/hooks/use-dashboard";
 import { useAgentRun } from "@/hooks/use-agent-run";
@@ -28,6 +29,7 @@ export default function PortfolioDashboardPage() {
     chartPeriod
   );
   const { isRunning, run, pause, resume } = useAgentRun(portfolioId);
+  const latestRun = dashboard?.agent_runs?.[0] ?? null;
 
   const handleRunAgent = async () => {
     try {
@@ -119,6 +121,15 @@ export default function PortfolioDashboardPage() {
             </Button>
           </div>
         </div>
+
+        {latestRun && latestRun.status !== "done" && (
+          <Alert variant="destructive">
+            <AlertTitle>Latest agent run {latestRun.status}</AlertTitle>
+            <AlertDescription>
+              {latestRun.summary || "No summary recorded. Check the Runs page for details."}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Summary Stats Row */}
         {isLoading ? (

@@ -201,6 +201,7 @@ class ModelCoverageTickerOut(APIModel):
     coverage_pct: float
     is_fully_trained: bool
     last_trained_at: datetime | None = None
+    last_training_error: str | None = None
 
 
 class ModelOverviewSummaryOut(APIModel):

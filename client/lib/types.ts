@@ -141,6 +141,7 @@ export interface ModelCoverageItem {
   coverage_pct: number;
   is_fully_trained: boolean;
   last_trained_at: string | null;
+  last_training_error?: string | null;
 }
 
 export interface ModelsOverview {

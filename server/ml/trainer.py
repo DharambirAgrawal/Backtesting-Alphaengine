@@ -15,6 +15,20 @@ from ml.features import add_technical_features
 from ml.model_fit import fit_lstm_price_direction, fit_xgb_direction
 from ml.predictor import invalidate_model_cache
 
+_LAST_TRAINING_ERRORS: dict[str, str] = {}
+
+
+def record_training_error(ticker: str, error: str) -> None:
+    _LAST_TRAINING_ERRORS[ticker.upper()] = error
+
+
+def clear_training_error(ticker: str) -> None:
+    _LAST_TRAINING_ERRORS.pop(ticker.upper(), None)
+
+
+def get_training_errors() -> dict[str, str]:
+    return dict(_LAST_TRAINING_ERRORS)
+
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
@@ -85,9 +99,14 @@ async def train_ticker_models(db: AsyncSession, ticker: str) -> dict:
             history_rows = await get_history(symbol, days=756)
             features = _features_from_history_rows(history_rows)
     except MarketDataUnavailableError as exc:
+        record_training_error(symbol, str(exc))
         raise ValueError(str(exc)) from exc
+    except Exception as exc:
+        record_training_error(symbol, f"training error: {exc}")
+        raise
 
     if features.empty:
+        record_training_error(symbol, f"Not enough historical data to train models for {symbol}")
         raise ValueError(f"Not enough historical data to train models for {symbol}")
 
     training_rows = int(len(features))
@@ -128,6 +147,7 @@ async def train_ticker_models(db: AsyncSession, ticker: str) -> dict:
 
     await db.commit()
     invalidate_model_cache(symbol)
+    clear_training_error(symbol)
 
     return {
         "ticker": symbol,

@@ -23,7 +23,7 @@ from core.schemas import (
     ModelPortfolioReferenceOut,
 )
 from ml.evaluator import get_accuracy_series, get_latest_forward_accuracy
-from ml.trainer import train_many_tickers, train_ticker_models
+from ml.trainer import get_training_errors, train_many_tickers, train_ticker_models
 
 router = APIRouter(tags=["models"])
 MODEL_TYPES = ("lstm", "xgboost")
@@ -190,6 +190,7 @@ async def get_models_overview(
     trained_model_count = 0
     fully_trained_tickers = 0
     missing_model_count = 0
+    training_errors = get_training_errors()
 
     for ticker in sorted(scoped_tickers):
         rows = models_by_ticker.get(ticker, [])
@@ -217,6 +218,7 @@ async def get_models_overview(
                 coverage_pct=round((len(trained_types) / len(MODEL_TYPES)) * 100, 2),
                 is_fully_trained=not missing_types,
                 last_trained_at=last_trained_at,
+                last_training_error=training_errors.get(ticker),
             )
         )
 

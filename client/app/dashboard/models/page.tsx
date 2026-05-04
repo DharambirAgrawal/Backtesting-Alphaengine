@@ -220,7 +220,8 @@ export default function GlobalModelsPage() {
             ) : (
               <div className="space-y-3">
                 {overview.coverage.map((item) => {
-                  const tickerError = lastRetrainFailures[item.ticker];
+                  const tickerError =
+                    lastRetrainFailures[item.ticker] ?? item.last_training_error;
                   return (
                   <div
                     key={item.ticker}
