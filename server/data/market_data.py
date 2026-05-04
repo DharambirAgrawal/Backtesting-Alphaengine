@@ -19,11 +19,62 @@ for _log in ("yfinance", "yfinance.base", "yfinance.ticker", "yfinance.scrapers"
 _OHLCV_CACHE_MAX_AGE = timedelta(days=14)
 _OHLCV_CACHE: dict[str, pd.DataFrame] = {}
 _OHLCV_CACHE_UPDATED_AT: dict[str, datetime] = {}
+_LAST_PROVIDER_ERRORS: dict[str, dict[str, str]] = {}
+_LAST_PROVIDER_ACTIVE: dict[str, str] = {}
+_LAST_PROVIDER_STARTED_AT: dict[str, datetime] = {}
 
 
 def _fallback_price(ticker: str) -> float:
     seed = abs(hash(ticker.upper())) % 400
     return round(50 + seed + (datetime.now(timezone.utc).timetuple().tm_yday % 17), 2)
+
+
+def _record_provider_result(ticker: str, provider: str, status: str, error: str | None = None) -> None:
+    symbol = ticker.strip().upper()
+    entry = _LAST_PROVIDER_ERRORS.setdefault(symbol, {})
+    entry[provider] = f"{status}: {error}" if error else status
+
+
+def _set_provider_active(ticker: str, provider: str) -> None:
+    symbol = ticker.strip().upper()
+    _LAST_PROVIDER_ACTIVE[symbol] = provider
+    _LAST_PROVIDER_STARTED_AT[symbol] = datetime.now(timezone.utc)
+
+
+def _clear_provider_active(ticker: str) -> None:
+    symbol = ticker.strip().upper()
+    _LAST_PROVIDER_ACTIVE.pop(symbol, None)
+    _LAST_PROVIDER_STARTED_AT.pop(symbol, None)
+
+
+def _provider_summary(ticker: str) -> str:
+    symbol = ticker.strip().upper()
+    entry = _LAST_PROVIDER_ERRORS.get(symbol, {})
+    if not entry:
+        return ""
+    parts = [f"{key}={value}" for key, value in entry.items()]
+    return "; ".join(parts)
+
+
+def get_provider_debug(ticker: str) -> str:
+    symbol = ticker.strip().upper()
+    active = _LAST_PROVIDER_ACTIVE.get(symbol)
+    started_at = _LAST_PROVIDER_STARTED_AT.get(symbol)
+    active_info = ""
+    if active:
+        if started_at:
+            elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()
+            active_info = f"active={active} elapsed={elapsed:.1f}s"
+        else:
+            active_info = f"active={active}"
+    summary = _provider_summary(symbol)
+    if active_info and summary:
+        return f"{active_info}; attempts: {summary}"
+    if active_info:
+        return active_info
+    if summary:
+        return f"attempts: {summary}"
+    return ""
 
 
 def _normalize_ohlcv_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -359,28 +410,40 @@ def _synthetic_history(ticker: str, days: int) -> list[dict]:
 
 def _daily_ohlcv_first_hit(ticker: str, period: str) -> pd.DataFrame:
     """Try providers in order. Stooq-first avoids Yahoo IP blocks (same path for fills + marks)."""
+    symbol = ticker.upper().strip()
+    _LAST_PROVIDER_ERRORS[symbol] = {}
+    _clear_provider_active(symbol)
     seq: list[tuple[str, object]] = []
     if STOOQ_FIRST:
         seq.append(("stooq", lambda: _stooq_daily_sync(ticker)))
-    seq.extend(
-        [
-            ("finnhub", lambda: _finnhub_daily_sync(ticker, period)),
-            ("yahoo_history", lambda: _yahoo_history_dataframe(ticker, period=period)),
-            ("yahoo_download", lambda: _yahoo_download_dataframe(ticker, period=period)),
-        ]
-    )
+    if not settings.FINNHUB_API_KEY:
+        _record_provider_result(symbol, "finnhub", "skipped(no_key)")
+    else:
+        seq.append(("finnhub", lambda: _finnhub_daily_sync(ticker, period)))
+    seq.append(("yahoo_history", lambda: _yahoo_history_dataframe(ticker, period=period)))
+    seq.append(("yahoo_download", lambda: _yahoo_download_dataframe(ticker, period=period)))
     if not STOOQ_FIRST:
         seq.append(("stooq", lambda: _stooq_daily_sync(ticker)))
-    seq.append(("alpha_vantage", lambda: _alpha_vantage_daily_sync(ticker)))
+    if not settings.ALPHA_VANTAGE_KEY:
+        _record_provider_result(symbol, "alpha_vantage", "skipped(no_key)")
+    else:
+        seq.append(("alpha_vantage", lambda: _alpha_vantage_daily_sync(ticker)))
 
     for name, fn in seq:
         try:
+            _set_provider_active(symbol, name)
             df = fn()
+            _clear_provider_active(symbol)
             if df is not None and not df.empty:
+                _record_provider_result(symbol, name, "ok")
                 _cache_put_ohlcv(ticker, df)
                 return df
+            _record_provider_result(symbol, name, "empty")
         except Exception as exc:
+            _clear_provider_active(symbol)
+            _record_provider_result(symbol, name, "error", str(exc))
             logging.warning(f"Provider {name} failed for {ticker}: {exc}")
+    _clear_provider_active(symbol)
     return _cache_get_ohlcv(ticker)
 
 
@@ -389,10 +452,13 @@ def _fetch_ohlcv_chain(ticker: str, period: str = "2y") -> pd.DataFrame:
 
 
 def _empty_chain_message(ticker: str) -> str:
+    summary = _provider_summary(ticker)
+    details = f" Provider attempts: {summary}." if summary else ""
     return (
         f"No real OHLCV returned for {ticker} from Finnhub, Stooq, Yahoo, or Alpha Vantage. "
         "When markets are closed, providers should still return the last completed session close. "
         "Check API/network configuration, or enable ALLOW_SYNTHETIC_MARKET_DATA=true for offline development."
+        + details
     )
 
 

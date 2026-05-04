@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from datetime import datetime, timedelta, timezone
 
@@ -18,7 +19,7 @@ from core.models import (
 )
 from core.schemas import HoldingOut, PerformanceStatsOut, PortfolioOut, TransactionOut
 from data.exceptions import MarketDataUnavailableError
-from data.market_data import get_current_price
+from data.market_data import get_current_price, get_provider_debug
 
 
 # Simple in-memory price cache with TTL (5 minutes)
@@ -157,17 +158,23 @@ async def _price_for_holding(ticker: str, avg_buy: float) -> tuple[float, str, s
         _set_cached_price(ticker, price)
         return price, "live", None
     except asyncio.TimeoutError:
+        details = get_provider_debug(ticker)
         error = "market data request timed out"
+        if details:
+            error = f"{error} ({details})"
+        logging.warning("Market data timeout for %s: %s", ticker, error)
         if stale_cached is not None:
             return stale_cached, "stale_cache", error
         return avg_buy, "avg_buy", error
     except MarketDataUnavailableError as exc:
         error = str(exc)
+        logging.warning("Market data unavailable for %s: %s", ticker, error)
         if stale_cached is not None:
             return stale_cached, "stale_cache", error
         return avg_buy, "avg_buy", error
     except Exception as exc:
         error = f"market data error: {exc}"
+        logging.warning("Market data error for %s: %s", ticker, error)
         if stale_cached is not None:
             return stale_cached, "stale_cache", error
         return avg_buy, "avg_buy", error
