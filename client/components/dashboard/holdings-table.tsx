@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -23,6 +24,24 @@ interface HoldingsTableProps {
 }
 
 export function HoldingsTable({ holdings, isLoading }: HoldingsTableProps) {
+  const errorHoldings = useMemo(
+    () => holdings.filter((holding) => holding.price_error),
+    [holdings]
+  );
+  const errorDigest = useMemo(
+    () =>
+      errorHoldings
+        .map((holding) => `${holding.ticker}:${holding.price_error}`)
+        .join("|") ||
+      "",
+    [errorHoldings]
+  );
+
+  useEffect(() => {
+    if (!errorHoldings.length) return;
+    console.warn("Market data errors", errorHoldings);
+  }, [errorDigest, errorHoldings]);
+
   if (isLoading) {
     return (
       <Card className="bg-card/50 border-border/50">
@@ -67,15 +86,24 @@ export function HoldingsTable({ holdings, isLoading }: HoldingsTableProps) {
         <CardTitle className="text-base font-medium">Current Holdings</CardTitle>
       </CardHeader>
       <CardContent>
-        {holdings.some((holding) => holding.price_error) && (
+        {errorHoldings.length > 0 && (
           <Alert variant="destructive" className="mb-4">
             <AlertTitle>Market data issue</AlertTitle>
             <AlertDescription>
-              Live prices failed for: {holdings
-                .filter((holding) => holding.price_error)
-                .map((holding) => holding.ticker)
-                .join(", ")}
-              . Falling back to cached or avg-buy prices. Check Render logs or API connectivity.
+              <p>
+                Live prices failed for: {errorHoldings
+                  .map((holding) => holding.ticker)
+                  .join(", ")}
+                . Falling back to cached or avg-buy prices.
+              </p>
+              <div className="mt-2 space-y-1 text-xs text-destructive/90">
+                {errorHoldings.map((holding) => (
+                  <div key={`price-error-${holding.ticker}`}>
+                    <span className="font-mono">{holding.ticker}:</span>{" "}
+                    {holding.price_error}
+                  </div>
+                ))}
+              </div>
             </AlertDescription>
           </Alert>
         )}
