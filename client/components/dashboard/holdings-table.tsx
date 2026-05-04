@@ -14,6 +14,7 @@ import { formatCurrency, formatPct, formatShares } from "@/lib/format";
 import type { Holding } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Briefcase } from "lucide-react";
 
 interface HoldingsTableProps {
@@ -66,6 +67,18 @@ export function HoldingsTable({ holdings, isLoading }: HoldingsTableProps) {
         <CardTitle className="text-base font-medium">Current Holdings</CardTitle>
       </CardHeader>
       <CardContent>
+        {holdings.some((holding) => holding.price_error) && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTitle>Market data issue</AlertTitle>
+            <AlertDescription>
+              Live prices failed for: {holdings
+                .filter((holding) => holding.price_error)
+                .map((holding) => holding.ticker)
+                .join(", ")}
+              . Falling back to cached or avg-buy prices. Check Render logs or API connectivity.
+            </AlertDescription>
+          </Alert>
+        )}
         <div className="space-y-3 md:hidden">
           {holdings.map((holding) => (
             <div

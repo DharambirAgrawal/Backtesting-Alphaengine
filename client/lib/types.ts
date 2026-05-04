@@ -33,6 +33,8 @@ export interface Holding {
   value: number;
   profit_loss: number;
   profit_loss_pct: number;
+  price_source?: string | null;
+  price_error?: string | null;
 }
 
 export interface Transaction {

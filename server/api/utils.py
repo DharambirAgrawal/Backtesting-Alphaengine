@@ -138,12 +138,16 @@ async def get_portfolio_tickers(db: AsyncSession, portfolio_id) -> list[str]:
     return [str(row).upper() for row in rows]
 
 
-async def _price_for_holding(ticker: str, avg_buy: float) -> float:
-    """Fetch current price with caching and timeout. Falls back to avg_buy on failure."""
+async def _price_for_holding(ticker: str, avg_buy: float) -> tuple[float, str, str | None]:
+    """Fetch current price with caching and timeout.
+
+    Returns (price, source, error). Source indicates whether live, cache, stale_cache,
+    or avg_buy was used. Error is set when live fetch failed.
+    """
     # Check cache first
     cached = _get_cached_price(ticker)
     if cached is not None:
-        return cached
+        return cached, "cache", None
 
     stale_cached = _get_cached_price(ticker, allow_stale=True)
 
@@ -151,17 +155,22 @@ async def _price_for_holding(ticker: str, avg_buy: float) -> float:
         # Fetch price with a bounded timeout to avoid slow requests
         price = await asyncio.wait_for(get_current_price(ticker), timeout=8.0)
         _set_cached_price(ticker, price)
-        return price
-    except (asyncio.TimeoutError, MarketDataUnavailableError):
-        # On timeout or unavailable, fall back to stale cache or avg_buy
+        return price, "live", None
+    except asyncio.TimeoutError:
+        error = "market data request timed out"
         if stale_cached is not None:
-            return stale_cached
-        return avg_buy
-    except Exception:
-        # Any other error, fall back to stale cache or avg_buy
+            return stale_cached, "stale_cache", error
+        return avg_buy, "avg_buy", error
+    except MarketDataUnavailableError as exc:
+        error = str(exc)
         if stale_cached is not None:
-            return stale_cached
-        return avg_buy
+            return stale_cached, "stale_cache", error
+        return avg_buy, "avg_buy", error
+    except Exception as exc:
+        error = f"market data error: {exc}"
+        if stale_cached is not None:
+            return stale_cached, "stale_cache", error
+        return avg_buy, "avg_buy", error
 
 
 async def build_holdings_view(
@@ -190,7 +199,8 @@ async def build_holdings_view(
     output: list[HoldingOut] = []
     holdings_value = 0.0
 
-    for row, current_price in zip(eligible, prices, strict=True):
+    for row, price_payload in zip(eligible, prices, strict=True):
+        current_price, price_source, price_error = price_payload
         shares = as_float(row.shares)
         avg_buy = as_float(row.avg_buy_price)
         value = shares * current_price
@@ -209,6 +219,8 @@ async def build_holdings_view(
                 value=round(value, 2),
                 profit_loss=round(profit_loss, 2),
                 profit_loss_pct=round(profit_loss_pct, 4),
+                price_source=price_source,
+                price_error=price_error,
             )
         )
 

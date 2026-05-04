@@ -92,6 +92,8 @@ class HoldingOut(APIModel):
     value: float
     profit_loss: float
     profit_loss_pct: float
+    price_source: str | None = None
+    price_error: str | None = None
 
 
 class TransactionOut(APIModel):
