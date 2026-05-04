@@ -24,23 +24,31 @@ from data.market_data import get_current_price
 # Simple in-memory price cache with TTL (5 minutes)
 _price_cache: dict[str, tuple[float, float]] = {}  # {ticker: (price, timestamp_utc_seconds)}
 _PRICE_CACHE_TTL = 300.0  # 5 minutes
+_PRICE_CACHE_STALE_TTL = 3600.0  # 1 hour
 
 
-def _get_cached_price(ticker: str) -> float | None:
-    """Get cached price if exists and not expired."""
-    if ticker not in _price_cache:
+def _get_cached_price(ticker: str, *, allow_stale: bool = False) -> float | None:
+    """Get cached price if exists and not expired (or allow stale within max age)."""
+    symbol = ticker.strip().upper()
+    entry = _price_cache.get(symbol)
+    if not entry:
         return None
-    price, ts = _price_cache[ticker]
+    price, ts = entry
     now = datetime.now(timezone.utc).timestamp()
-    if now - ts > _PRICE_CACHE_TTL:
-        del _price_cache[ticker]
-        return None
-    return price
+    age = now - ts
+    if age <= _PRICE_CACHE_TTL:
+        return price
+    if allow_stale and age <= _PRICE_CACHE_STALE_TTL:
+        return price
+    if age > _PRICE_CACHE_STALE_TTL:
+        _price_cache.pop(symbol, None)
+    return None
 
 
 def _set_cached_price(ticker: str, price: float) -> None:
     """Cache a price for 5 minutes."""
-    _price_cache[ticker] = (price, datetime.now(timezone.utc).timestamp())
+    symbol = ticker.strip().upper()
+    _price_cache[symbol] = (price, datetime.now(timezone.utc).timestamp())
 
 
 def normalize_ticker(value: str) -> str:
@@ -137,16 +145,22 @@ async def _price_for_holding(ticker: str, avg_buy: float) -> float:
     if cached is not None:
         return cached
 
+    stale_cached = _get_cached_price(ticker, allow_stale=True)
+
     try:
-        # Fetch price with 3-second timeout to avoid slow requests
-        price = await asyncio.wait_for(get_current_price(ticker), timeout=3.0)
+        # Fetch price with a bounded timeout to avoid slow requests
+        price = await asyncio.wait_for(get_current_price(ticker), timeout=8.0)
         _set_cached_price(ticker, price)
         return price
     except (asyncio.TimeoutError, MarketDataUnavailableError):
-        # On timeout or unavailable, use avg_buy price
+        # On timeout or unavailable, fall back to stale cache or avg_buy
+        if stale_cached is not None:
+            return stale_cached
         return avg_buy
     except Exception:
-        # Any other error, use avg_buy
+        # Any other error, fall back to stale cache or avg_buy
+        if stale_cached is not None:
+            return stale_cached
         return avg_buy
 
 

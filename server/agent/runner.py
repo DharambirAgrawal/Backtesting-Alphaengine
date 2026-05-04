@@ -43,6 +43,8 @@ def _build_reasoning(
 
 
 def _compact_tool_error(exc: Exception) -> str:
+    if isinstance(exc, asyncio.TimeoutError):
+        return "tool timed out"
     message = str(exc).replace("**", "")
     if "No real OHLCV returned for" in message:
         return "market data unavailable from providers"
@@ -279,11 +281,17 @@ async def _with_retries(
     *args,
     retries: int = 2,
     base_delay_seconds: float = 0.6,
+    timeout_seconds: float | None = None,
     **kwargs,
 ):
     last_error: Exception | None = None
     for attempt in range(retries + 1):
         try:
+            if timeout_seconds:
+                return await asyncio.wait_for(
+                    coro(*args, **kwargs),
+                    timeout=timeout_seconds,
+                )
             return await coro(*args, **kwargs)
         except Exception as exc:  # noqa: PERF203
             last_error = exc
@@ -376,11 +384,33 @@ async def run_agent(
 
             for ticker in tickers:
                 try:
-                    prediction = await _with_retries(predict_price_tool, ticker, horizon_days=3)
-                    direction = await _with_retries(classify_direction_tool, ticker)
-                    technical = await _with_retries(get_technical_signals_tool, ticker)
-                    sentiment_data = await _with_retries(get_sentiment_score_tool, ticker)
-                    status = await _with_retries(get_portfolio_status_tool, db, portfolio_id)
+                    prediction = await _with_retries(
+                        predict_price_tool,
+                        ticker,
+                        horizon_days=3,
+                        timeout_seconds=25.0,
+                    )
+                    direction = await _with_retries(
+                        classify_direction_tool,
+                        ticker,
+                        timeout_seconds=20.0,
+                    )
+                    technical = await _with_retries(
+                        get_technical_signals_tool,
+                        ticker,
+                        timeout_seconds=20.0,
+                    )
+                    sentiment_data = await _with_retries(
+                        get_sentiment_score_tool,
+                        ticker,
+                        timeout_seconds=20.0,
+                    )
+                    status = await _with_retries(
+                        get_portfolio_status_tool,
+                        db,
+                        portfolio_id,
+                        timeout_seconds=10.0,
+                    )
                 except Exception as exc:
                     compact = _compact_tool_error(exc)
                     summary_lines.append(f"{ticker}: skipped due to tool error ({compact}).")
@@ -500,6 +530,7 @@ async def run_agent(
                             run_id=str(run.id),
                             llm_reasoning=reasoning,
                             tools_called=tools_called,
+                            timeout_seconds=20.0,
                         )
                     except Exception as exc:
                         summary_lines.append(f"{ticker}: trade execution failed ({exc}).")

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_current_user, get_portfolio_or_404
 from api.utils import as_float
-from core.database import get_db
+from core.config import settings
+from core.database import SessionLocal, get_db
 from core.models import ModelRegistry, Portfolio, PortfolioTicker, User
 from core.schemas import (
     MessageResponse,
@@ -23,6 +27,27 @@ from ml.trainer import train_many_tickers, train_ticker_models
 
 router = APIRouter(tags=["models"])
 MODEL_TYPES = ("lstm", "xgboost")
+_background_train_semaphore = asyncio.Semaphore(1)
+
+
+async def _train_ticker_background(ticker: str) -> None:
+    async with _background_train_semaphore:
+        async with SessionLocal() as db:
+            try:
+                await train_ticker_models(db, ticker)
+            except Exception as exc:
+                logging.exception("Model training failed for %s: %s", ticker, exc)
+
+
+async def _train_many_background(tickers: list[str]) -> None:
+    if not tickers:
+        return
+    async with _background_train_semaphore:
+        async with SessionLocal() as db:
+            try:
+                await train_many_tickers(db, tickers)
+            except Exception as exc:
+                logging.exception("Bulk model retrain failed: %s", exc)
 
 
 def _normalize_model_type(value: str) -> str | None:
@@ -221,6 +246,11 @@ async def train_model(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ticker is required",
         )
+    if settings.is_production:
+        # Run training in the background so the request does not time out on hosted deployments.
+        asyncio.create_task(_train_ticker_background(symbol))
+        return MessageResponse(message=f"Training started for {symbol}")
+
     try:
         await train_ticker_models(db, symbol)
     except ValueError as exc:
@@ -239,6 +269,23 @@ async def retrain_all_models(
     db: AsyncSession = Depends(get_db),
 ):
     tickers = await _get_scoped_tickers(db, request, portfolio_id)
+
+    if settings.is_production:
+        # Schedule long-running retraining in the background to avoid request timeouts.
+        asyncio.create_task(_train_many_background(tickers))
+
+        scope = "portfolio" if portfolio_id else "tracked"
+        message = (
+            f"Retraining queued for {len(tickers)} {scope} ticker(s). "
+            "Check back shortly for updated models."
+        )
+        return ModelRetrainAllOut(
+            message=message,
+            total_tickers=len(tickers),
+            trained_count=0,
+            failed_count=0,
+            failed=[],
+        )
 
     trained_count = 0
     failed: list[dict] = []

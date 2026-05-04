@@ -22,12 +22,28 @@ export function useModels(options: UseModelsOptions = {}) {
     new Set()
   );
   const { portfolioId, trackedTickers, enabled = true } = options;
+  const RETRAIN_POLL_MS = 15000;
+  const RETRAIN_SINGLE_GRACE_MS = 120000;
+
+  const scheduleRetrainClear = useCallback((tickers: string[], timeoutMs: number) => {
+    if (timeoutMs <= 0) return;
+    window.setTimeout(() => {
+      setRetrainingTickers((prev) => {
+        const next = new Set(prev);
+        for (const ticker of tickers) {
+          next.delete(ticker);
+        }
+        return next;
+      });
+    }, timeoutMs);
+  }, []);
 
   const { data, error, isLoading, mutate } = useSWR<MLModel[]>(
     enabled ? (portfolioId ? `models-${portfolioId}` : "models") : null,
     () => getModels({ portfolioId }),
     {
       revalidateOnFocus: false,
+      refreshInterval: () => (retrainingTickers.size > 0 ? RETRAIN_POLL_MS : 0),
     }
   );
 
@@ -42,11 +58,7 @@ export function useModels(options: UseModelsOptions = {}) {
       try {
         await trainTicker(ticker);
         await mutate();
-        setRetrainingTickers((prev) => {
-          const next = new Set(prev);
-          next.delete(ticker);
-          return next;
-        });
+        scheduleRetrainClear([ticker], RETRAIN_SINGLE_GRACE_MS);
       } catch (error) {
         setRetrainingTickers((prev) => {
           const next = new Set(prev);
@@ -56,7 +68,7 @@ export function useModels(options: UseModelsOptions = {}) {
         throw error;
       }
     },
-    [data, mutate, portfolioId]
+    [data, mutate, portfolioId, scheduleRetrainClear]
   );
 
   /**
@@ -77,13 +89,17 @@ export function useModels(options: UseModelsOptions = {}) {
     try {
       const result = await retrainAll(portfolioId);
       await mutate();
-      setRetrainingTickers(new Set());
+      const estimatedMs = Math.min(
+        15 * 60 * 1000,
+        Math.max(120000, tickers.length * 16000)
+      );
+      scheduleRetrainClear(tickers, estimatedMs);
       return result;
     } catch (error) {
       setRetrainingTickers(new Set());
       throw error;
     }
-  }, [data, mutate, portfolioId, trackedTickers]);
+  }, [data, mutate, portfolioId, trackedTickers, scheduleRetrainClear]);
 
   const isRetraining = useCallback(
     (ticker: string) => retrainingTickers.has(ticker),

@@ -103,8 +103,7 @@ def _stooq_daily_sync(ticker: str) -> pd.DataFrame:
     """Daily OHLCV CSV from Stooq. Requires STOOQ_API_KEY (free, get from stooq.com)."""
     key = settings.STOOQ_API_KEY
     if not key:
-        logging.warning("STOOQ_API_KEY is not set. Skipping Stooq.")
-        return pd.DataFrame()
+        logging.warning("STOOQ_API_KEY is not set. Trying Stooq without a key.")
 
     base_sym = ticker.strip().upper().replace("/", ".").lower()
     candidates = [base_sym]
@@ -112,7 +111,9 @@ def _stooq_daily_sync(ticker: str) -> pd.DataFrame:
         candidates = [f"{base_sym}.us", base_sym]
 
     for symbol in candidates:
-        url = f"https://stooq.com/q/d/l/?s={symbol}&i=d&apikey={key}"
+        url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
+        if key:
+            url = f"{url}&apikey={key}"
         try:
             df = pd.read_csv(url)
         except Exception:

@@ -90,6 +90,18 @@ export default function GlobalModelsPage() {
       );
       setLastRetrainFailures(failureMap);
 
+      const queued =
+        result.trained_count === 0 &&
+        result.failed_count === 0 &&
+        result.message.toLowerCase().includes("queued");
+
+      if (queued) {
+        toast.success("Retraining queued", {
+          description: result.message,
+        });
+        return;
+      }
+
       if (result.failed_count > 0) {
         const failedTickers = result.failed.map((item) => item.ticker).join(", ");
         toast.error(`Retrain completed with ${result.failed_count} failure(s)`, {
