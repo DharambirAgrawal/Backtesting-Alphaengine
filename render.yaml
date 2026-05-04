@@ -8,14 +8,4 @@ services:
     dockerfilePath: ./server/Dockerfile
     dockerContext: ./server
     plan: free
-    envVars:
-      - key: ENVIRONMENT
-        value: production
-      - key: PYTHON_VERSION
-        value: "3.12"
-      - key: STOOQ_FIRST
-        value: "true"
-      - key: ALLOW_SYNTHETIC_MARKET_DATA
-        value: "false"
-      - key: ALLOW_SYNTHETIC_NEWS
-        value: "false"
+
