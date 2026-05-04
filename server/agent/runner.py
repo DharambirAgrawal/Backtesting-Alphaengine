@@ -480,7 +480,7 @@ async def run_agent(
                     prediction=prediction,
                     direction=direction,
                     technical=technical,
-                    sentiment=sentiment,
+                    sentiment=sentiment_data,
                     action=action,
                 )
                 if decision.get("source") == "llm":
@@ -492,7 +492,7 @@ async def run_agent(
                     "lstm_prediction": prediction,
                     "direction": direction,
                     "technical_signals": technical,
-                    "sentiment_score": sentiment,
+                    "sentiment_score": sentiment_data,
                     "decision_source": decision.get("source", "rules"),
                     "decision_mode": settings.AGENT_DECISION_MODE,
                 }
