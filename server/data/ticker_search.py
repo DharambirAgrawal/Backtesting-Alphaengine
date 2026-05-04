@@ -221,9 +221,14 @@ async def search_tickers(query: str, limit: int = 10) -> list[dict]:
     max_fetch = max(1, limit) * 2
 
     # Run all three live providers concurrently
+    yahoo_task = (
+        asyncio.to_thread(_yahoo_search_sync, query, max_fetch)
+        if not settings.DISABLE_YAHOO
+        else asyncio.sleep(0, result=[])
+    )
     finnhub_rows, yahoo_rows, av_rows = await asyncio.gather(
         asyncio.to_thread(_finnhub_search_sync, query, max_fetch),
-        asyncio.to_thread(_yahoo_search_sync, query, max_fetch),
+        yahoo_task,
         asyncio.to_thread(_alpha_vantage_search_sync, query, max_fetch),
     )
 

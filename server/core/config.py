@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     NEWS_API_KEY: str | None = None
     FINNHUB_API_KEY: str | None = None
     STOOQ_API_KEY: str | None = None
+    # Disable Yahoo/yfinance by default to avoid provider blocking in hosted environments.
+    DISABLE_YAHOO: bool = True
 
     MAX_CONCURRENT_AGENT_RUNS: int = 2
     MODEL_RETRAIN_ENABLED: bool = False

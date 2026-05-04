@@ -420,8 +420,12 @@ def _daily_ohlcv_first_hit(ticker: str, period: str) -> pd.DataFrame:
         _record_provider_result(symbol, "finnhub", "skipped(no_key)")
     else:
         seq.append(("finnhub", lambda: _finnhub_daily_sync(ticker, period)))
-    seq.append(("yahoo_history", lambda: _yahoo_history_dataframe(ticker, period=period)))
-    seq.append(("yahoo_download", lambda: _yahoo_download_dataframe(ticker, period=period)))
+    if settings.DISABLE_YAHOO:
+        _record_provider_result(symbol, "yahoo_history", "skipped(disabled)")
+        _record_provider_result(symbol, "yahoo_download", "skipped(disabled)")
+    else:
+        seq.append(("yahoo_history", lambda: _yahoo_history_dataframe(ticker, period=period)))
+        seq.append(("yahoo_download", lambda: _yahoo_download_dataframe(ticker, period=period)))
     if not STOOQ_FIRST:
         seq.append(("stooq", lambda: _stooq_daily_sync(ticker)))
     if not settings.ALPHA_VANTAGE_KEY:
