@@ -15,42 +15,44 @@ Live demo: [alphaenginestock.vercel.app](https://alphaenginestock.vercel.app)
 
 ## What it is
 
-AlphaEngine runs virtual stock portfolios against live market data. On a schedule (or on demand), a decision engine pulls real prices, technical indicators, news sentiment, and predictions from per-ticker ML models, then decides to BUY, SELL, or HOLD — and executes the trade against a simulated cash balance. No real money ever moves. Every decision — the model outputs it saw, the rule that fired, and (when enabled) the LLM's rationale — is written to the database next to the trade, so you can open any transaction and see exactly why it happened.
+AlphaEngine runs virtual stock portfolios against live market data. On a schedule (or on demand), a decision engine pulls real prices, technical indicators, news sentiment, and predictions from per-ticker ML models, then decides to BUY, SELL, or HOLD and executes the trade against a simulated cash balance. No real money ever moves. Every decision is written to the database next to the trade: the model outputs it saw, the rule that fired, and (when enabled) the LLM's rationale, so you can open any transaction and see exactly why it happened.
 
 It exists to make quant/ML workflows tangible: training a real model per ticker, backtesting a real decision loop, and watching it operate over time, without the cost or risk of a live brokerage.
 
 ## Features
 
-- **Paper portfolios** — multiple independent portfolios, each with its own cash balance, holdings, transaction history, and P&L.
-- **Real market data with provider fallback** — daily OHLCV and quotes are pulled from a provider chain (Stooq → Finnhub → Yahoo Finance → Alpha Vantage, configurable), so one dead provider doesn't take down the pipeline.
-- **Per-ticker ML models** — a PyTorch LSTM (price/return prediction) and an XGBoost classifier (up/down direction) are trained per ticker on technical features (RSI, MACD, Bollinger Bands, rolling returns) and stored in Supabase Storage. If a ticker has no trained model yet, the system falls back to a transparent momentum heuristic instead of failing.
-- **Hybrid decision engine** — a deterministic rule set (confidence, RSI bounds, sentiment thresholds, position sizing) always runs and can optionally be refined by a Gemini call that reasons over the same signals; hard risk rails (position caps, cash checks) apply regardless of which path produced the decision. Runs in pure-rules mode automatically if no Gemini key is configured.
-- **Full decision traces** — every trade stores the model predictions, technical signals, sentiment score, which decision path (rules vs. LLM) fired, and the reasoning text behind it.
-- **Scheduled + adaptive agent runs** — a fixed intraday schedule plus per-portfolio adaptive follow-ups (sooner after high-confidence or trade-producing runs, later after tool errors), skipping weekends and US market holidays.
-- **News sentiment** — headlines fetched per ticker (NewsAPI) and scored with a lightweight keyword-based scorer feeding into the decision engine.
-- **Model health & retraining** — accuracy tracking per model, a weekly retrain job, and automatic retraining when a model's rolling 7-day accuracy drops below 52%.
-- **Auth & admin** — JWT-based auth seeded from environment variables, bcrypt password hashing, and an admin panel for managing additional users.
-- **Dashboard** — portfolio value chart, holdings, recent trades, model registry/accuracy, and a transaction history with the full reasoning behind each trade.
+- **Paper portfolios**: multiple independent portfolios, each with its own cash balance, holdings, transaction history, and P&L.
+- **Real market data with provider fallback**: daily OHLCV and quotes are pulled from a provider chain (Stooq → Finnhub → Yahoo Finance → Alpha Vantage, configurable), so one dead provider doesn't take down the pipeline.
+- **Per-ticker ML models**: a PyTorch LSTM (price/return prediction) and an XGBoost classifier (up/down direction) are trained per ticker on technical features (RSI, MACD, Bollinger Bands, rolling returns) and stored in Supabase Storage. If a ticker has no trained model yet, the system falls back to a transparent momentum heuristic instead of failing.
+- **Hybrid decision engine**: a deterministic rule set (confidence, RSI bounds, sentiment thresholds, position sizing) always runs and can optionally be refined by a Gemini call that reasons over the same signals; hard risk rails (position caps, cash checks) apply regardless of which path produced the decision. Runs in pure-rules mode automatically if no Gemini key is configured.
+- **Full decision traces**: every trade stores the model predictions, technical signals, sentiment score, which decision path (rules vs. LLM) fired, and the reasoning text behind it.
+- **Scheduled + adaptive agent runs**: a fixed intraday schedule plus per-portfolio adaptive follow-ups (sooner after high-confidence or trade-producing runs, later after tool errors), skipping weekends and US market holidays.
+- **News sentiment**: headlines fetched per ticker (NewsAPI) and scored with a lightweight keyword-based scorer feeding into the decision engine.
+- **Model health & retraining**: accuracy tracking per model, a weekly retrain job, and automatic retraining when a model's rolling 7-day accuracy drops below 52%.
+- **Auth & admin**: JWT-based auth seeded from environment variables, bcrypt password hashing, and an admin panel for managing additional users.
+- **Dashboard**: portfolio value chart, holdings, recent trades, model registry/accuracy, and a transaction history with the full reasoning behind each trade.
 
 ### Roadmap / not fully wired yet
 
-- The Gemini decision path is real and callable, but it's a single-shot reasoning call over precomputed signals rather than an agent that dynamically calls tools mid-run — a true tool-calling loop (agent decides *which* signal to fetch next) is a natural next step.
+These are known gaps, not implemented features. Treat anything listed here as aspirational until it's moved up into Features above.
+
+- The Gemini decision path is real and callable, but it's a single-shot reasoning call over precomputed signals, not an agent that dynamically calls tools mid-run. A true tool-calling loop, where the agent decides which signal to fetch next, is a natural next step.
 - News sentiment scoring is keyword-based, not a trained NLP/sentiment model.
 - No automated test suite yet.
 
 ## Tech Stack
 
-**Backend** — Python, FastAPI, SQLAlchemy (async) + PostgreSQL, Alembic-style init scripts, APScheduler for cron/adaptive scheduling, JWT auth (python-jose + bcrypt).
+**Backend**: Python, FastAPI, SQLAlchemy (async) + PostgreSQL, Alembic-style init scripts, APScheduler for cron/adaptive scheduling, JWT auth (python-jose + bcrypt).
 
-**ML** — PyTorch (LSTM), XGBoost + scikit-learn (direction classifier), `ta` for technical indicators, model artifacts versioned in Supabase Storage.
+**ML**: PyTorch (LSTM), XGBoost + scikit-learn (direction classifier), `ta` for technical indicators, model artifacts versioned in Supabase Storage.
 
-**Market data & news** — Stooq, Finnhub, yfinance (Yahoo Finance), Alpha Vantage (provider chain with fallback), NewsAPI for headlines.
+**Market data & news**: Stooq, Finnhub, yfinance (Yahoo Finance), Alpha Vantage (provider chain with fallback), NewsAPI for headlines.
 
-**AI agent** — Google Gemini (`gemini-1.5-flash`) for optional LLM-assisted decisions, layered on top of the deterministic rule engine.
+**AI agent**: Google Gemini (`gemini-1.5-flash`) for optional LLM-assisted decisions, layered on top of the deterministic rule engine.
 
-**Frontend** — Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query, Recharts.
+**Frontend**: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query, Recharts.
 
-**Infra** — Render (backend, Docker), Vercel (frontend), Render Postgres, Supabase Storage.
+**Infra**: Render (backend, Docker), Vercel (frontend), Render Postgres, Supabase Storage.
 
 ## Architecture
 
@@ -137,13 +139,13 @@ App: `http://localhost:3000`
 2. Create a portfolio with a starting cash balance and a list of tickers.
 3. Open the models page and train the tracked tickers (or wait for the next scheduled retrain).
 4. Trigger an agent run manually, or let the scheduler run it at the next configured market session.
-5. Inspect holdings, transactions, and the value/performance chart — click into any trade to see the model predictions, signals, and reasoning behind it.
+5. Inspect holdings, transactions, and the value/performance chart. Click into any trade to see the model predictions, signals, and reasoning behind it.
 
 ## Configuration reference
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL`, `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Required — auth and database |
+| `DATABASE_URL`, `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Required for auth and database |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_BUCKET` | Model artifact storage |
 | `GEMINI_API_KEY`, `AGENT_DECISION_MODE` | LLM-assisted decisions (`rules`, `hybrid`, `gemini`); defaults to `hybrid`, degrades to rules-only without a key |
 | `STOOQ_API_KEY`, `FINNHUB_API_KEY`, `ALPHA_VANTAGE_KEY` | Market data providers |
@@ -161,4 +163,4 @@ See `server/.env.example` for the full list and `server/README.md` for backend-s
 
 ## Disclaimer
 
-Paper trading only. AlphaEngine is for simulation, learning, and portfolio-building — not financial advice, and not connected to any real brokerage or real money.
+Paper trading only. AlphaEngine is for simulation, learning, and portfolio-building. It is not financial advice, and it is not connected to any real brokerage or real money.
